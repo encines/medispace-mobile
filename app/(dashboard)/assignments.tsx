@@ -1,5 +1,5 @@
-import { useState } from 'react';
-import { View, Text, StyleSheet, FlatList, TouchableOpacity, Modal, ActivityIndicator, Alert, ScrollView, RefreshControl, Platform } from 'react-native';
+import { useState, useEffect } from 'react';
+import { View, Text, StyleSheet, FlatList, TouchableOpacity, Modal, ActivityIndicator, Alert, ScrollView, RefreshControl, Platform, TextInput } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter, useLocalSearchParams } from 'expo-router';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
@@ -8,7 +8,7 @@ import { format } from 'date-fns';
 import DateTimePicker from '@react-native-community/datetimepicker';
 import { useAuth } from '../../hooks/useAuth';
 import { supabase } from '../../lib/supabase';
-import { Colors, Spacing, FontSizes, BorderRadius } from '../../constants/theme';
+import { Colors, Spacing, FontSizes, BorderRadius, Shadows } from '../../constants/theme';
 
 const daysList = ['Domingo', 'Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado'];
 const shortDays = ['Dom', 'Lun', 'Mar', 'Mié', 'Jue', 'Vie', 'Sáb'];
@@ -17,10 +17,45 @@ export default function GlobalAssignmentsScreen() {
   const router = useRouter();
   const queryClient = useQueryClient();
   const params = useLocalSearchParams();
-  const { user, roles } = useAuth();
+  const { user, roles, profile, refreshProfile } = useAuth();
   
   const isDoctor = roles?.includes('doctor');
   const isAdmin = roles?.includes('admin');
+
+  const [fee, setFee] = useState('');
+
+  // 0. Manage Fee (Doctors only)
+  useEffect(() => {
+    if (isDoctor && profile?.consultation_fee !== undefined) {
+      setFee(profile.consultation_fee?.toString() || '0');
+    }
+  }, [profile, isDoctor]);
+
+  const updateFeeMutation = useMutation({
+    mutationFn: async (newFee: number) => {
+      const { error } = await supabase
+        .from('profiles')
+        .update({ consultation_fee: newFee })
+        .eq('user_id', user?.id);
+      if (error) throw error;
+    },
+    onSuccess: () => {
+      refreshProfile();
+      Alert.alert('Éxito', 'Tarifa actualizada correctamente');
+    },
+    onError: (err: any) => {
+      Alert.alert('Error', 'No se pudo actualizar la tarifa: ' + err.message);
+    }
+  });
+
+  const handleSaveFee = () => {
+    const numFee = parseFloat(fee);
+    if (isNaN(numFee) || numFee < 0) {
+      Alert.alert('Error', 'Por favor ingresa un monto válido');
+      return;
+    }
+    updateFeeMutation.mutate(numFee);
+  };
 
   const [modalVisible, setModalVisible] = useState(false);
   const [selectedDoctorId, setSelectedDoctorId] = useState<string | null>(null);
@@ -245,6 +280,37 @@ export default function GlobalAssignmentsScreen() {
       <Text style={styles.sectionTitle}>
         <Ionicons name="medical" size={18} color="#16a34a" /> {isDoctor ? 'Mis Horarios' : 'Horarios por Médico'}
       </Text>
+
+      {isDoctor && (
+        <View style={styles.feeContainer}>
+          <View style={styles.feeCard}>
+             <View style={styles.feeIconCircle}>
+                <Ionicons name="cash-outline" size={20} color={Colors.secondary} />
+             </View>
+             <View style={styles.feeInfo}>
+                <Text style={styles.feeLabel}>Mi Tarifa de Consulta</Text>
+                <Text style={styles.feeSub}>Visible para pacientes al agendar</Text>
+             </View>
+             <View style={styles.feeInputWrapper}>
+               <Text style={styles.feeCurrency}>$</Text>
+               <TextInput
+                 style={styles.feeInput}
+                 value={fee}
+                 onChangeText={setFee}
+                 keyboardType="numeric"
+                 placeholder="0"
+               />
+               <TouchableOpacity 
+                 style={[styles.feeSaveBtn, updateFeeMutation.isPending && { opacity: 0.7 }]} 
+                 onPress={handleSaveFee}
+                 disabled={updateFeeMutation.isPending}
+               >
+                 {updateFeeMutation.isPending ? <ActivityIndicator size="small" color="white" /> : <Ionicons name="checkmark" size={20} color="white" />}
+               </TouchableOpacity>
+             </View>
+          </View>
+        </View>
+      )}
 
       {isLoading ? (
         <View style={styles.center}>
@@ -487,4 +553,23 @@ const styles = StyleSheet.create({
   },
   confirmBtnText: { color: 'white', fontSize: 16, fontWeight: '800' },
   disabledBtn: { opacity: 0.5, backgroundColor: '#94a3b8' },
+
+  // Fee Styles (Consolidated)
+  feeContainer: { paddingHorizontal: Spacing.lg, marginBottom: 4 },
+  feeCard: { 
+    backgroundColor: 'white', borderRadius: 24, padding: 16, 
+    flexDirection: 'row', alignItems: 'center', borderWidth: 1, borderColor: '#e2e8f0',
+    ...Shadows.small,
+  },
+  feeIconCircle: { width: 44, height: 44, borderRadius: 22, backgroundColor: '#f0f9ff', alignItems: 'center', justifyContent: 'center' },
+  feeInfo: { flex: 1, marginLeft: 12 },
+  feeLabel: { fontSize: 15, fontWeight: '800', color: Colors.primary },
+  feeSub: { fontSize: 11, color: Colors.textMuted },
+  feeInputWrapper: { flexDirection: 'row', alignItems: 'center', gap: 6 },
+  feeCurrency: { fontSize: 18, fontWeight: '800', color: Colors.primary },
+  feeInput: { 
+    width: 60, height: 44, backgroundColor: '#f1f5f9', borderRadius: 12, 
+    textAlign: 'center', fontSize: 16, fontWeight: '800', color: Colors.primary,
+  },
+  feeSaveBtn: { width: 44, height: 44, borderRadius: 12, backgroundColor: Colors.secondary, alignItems: 'center', justifyContent: 'center' },
 });

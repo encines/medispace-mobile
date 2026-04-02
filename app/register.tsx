@@ -3,6 +3,8 @@ import { View, Text, TextInput, TouchableOpacity, StyleSheet, KeyboardAvoidingVi
 import { useRouter } from 'expo-router';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
+import { format } from 'date-fns';
+import DateTimePicker from '@react-native-community/datetimepicker';
 import Toast from 'react-native-toast-message';
 import { supabase } from '../lib/supabase';
 import { Colors, Spacing, FontSizes, BorderRadius } from '../constants/theme';
@@ -15,19 +17,20 @@ export default function RegisterScreen() {
   const [phone, setPhone] = useState('');
   const [password, setPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
+  // New States
+  const [birthDate, setBirthDate] = useState<Date | null>(null);
+  const [gender, setGender] = useState<'male' | 'female' | 'other' | null>(null);
+  const [clinicalNotes, setClinicalNotes] = useState('');
+  const [showDatePicker, setShowDatePicker] = useState(false);
   const [loading, setLoading] = useState(false);
 
   const handleRegister = async () => {
-    if (!firstName.trim() || !lastName.trim() || !email.trim() || !password.trim()) {
+    if (!firstName.trim() || !lastName.trim() || !email.trim() || !password.trim() || !birthDate || !gender) {
       Toast.show({ type: 'error', text1: 'Campos requeridos', text2: 'Completa todos los campos obligatorios' });
       return;
     }
     if (password !== confirmPassword) {
       Toast.show({ type: 'error', text1: 'Error', text2: 'Las contraseñas no coinciden' });
-      return;
-    }
-    if (password.length < 6) {
-      Toast.show({ type: 'error', text1: 'Error', text2: 'La contraseña debe tener al menos 6 caracteres' });
       return;
     }
 
@@ -37,7 +40,14 @@ export default function RegisterScreen() {
         email: email.trim(),
         password,
         options: {
-          data: { first_name: firstName.trim(), last_name: lastName.trim(), phone: phone.trim() || null },
+          data: { 
+            first_name: firstName.trim(), 
+            last_name: lastName.trim(), 
+            phone: phone.trim() || null,
+            birth_date: format(birthDate, 'yyyy-MM-dd'),
+            gender,
+            clinical_notes: clinicalNotes.trim() || null
+          },
         },
       });
       if (error) throw error;
@@ -47,6 +57,13 @@ export default function RegisterScreen() {
       Toast.show({ type: 'error', text1: 'Error al registrar', text2: error.message });
     } finally {
       setLoading(false);
+    }
+  };
+
+  const onDateChange = (event: any, selectedDate?: Date) => {
+    setShowDatePicker(false);
+    if (selectedDate) {
+      setBirthDate(selectedDate);
     }
   };
 
@@ -86,6 +103,58 @@ export default function RegisterScreen() {
             <View style={styles.inputGroup}>
               <Text style={styles.label}>Teléfono</Text>
               <TextInput style={styles.input} placeholder="(612) 123-4567" placeholderTextColor={Colors.textMuted} keyboardType="phone-pad" value={phone} onChangeText={setPhone} />
+            </View>
+
+            <View style={styles.row}>
+              <View style={[styles.inputGroup, { flex: 1 }]}>
+                <Text style={styles.label}>F. Nacimiento *</Text>
+                <TouchableOpacity style={styles.dateInput} onPress={() => setShowDatePicker(true)}>
+                  <Ionicons name="calendar-outline" size={18} color={Colors.textMuted} />
+                  <Text style={[styles.dateText, !birthDate && { color: Colors.textMuted }]}>
+                    {birthDate ? format(birthDate, 'dd/MM/yyyy') : 'Seleccionar'}
+                  </Text>
+                </TouchableOpacity>
+              </View>
+
+              <View style={[styles.inputGroup, { flex: 1.2 }]}>
+                <Text style={styles.label}>Sexo *</Text>
+                <View style={styles.genderRow}>
+                  {(['male', 'female', 'other'] as const).map((g) => (
+                    <TouchableOpacity 
+                      key={g} 
+                      style={[styles.genderBtn, gender === g && styles.genderBtnActive]} 
+                      onPress={() => setGender(g)}
+                    >
+                      <Text style={[styles.genderBtnText, gender === g && styles.genderBtnTextActive]}>
+                        {g === 'male' ? 'M' : g === 'female' ? 'F' : 'O'}
+                      </Text>
+                    </TouchableOpacity>
+                  ))}
+                </View>
+              </View>
+            </View>
+
+            {showDatePicker && (
+              <DateTimePicker
+                value={birthDate || new Date()}
+                mode="date"
+                display="default"
+                onChange={onDateChange}
+                maximumDate={new Date()}
+              />
+            )}
+
+            <View style={styles.inputGroup}>
+              <Text style={styles.label}>Datos Clínicos (Opcional)</Text>
+              <TextInput 
+                style={[styles.input, styles.textArea]} 
+                placeholder="Alergias, enfermedades crónicas, cirugías..." 
+                placeholderTextColor={Colors.textMuted} 
+                multiline
+                numberOfLines={3}
+                value={clinicalNotes} 
+                onChangeText={setClinicalNotes} 
+              />
             </View>
 
             <View style={styles.inputGroup}>
@@ -132,6 +201,21 @@ const styles = StyleSheet.create({
     borderRadius: BorderRadius.md, paddingHorizontal: Spacing.md, paddingVertical: 14,
     fontSize: FontSizes.md, color: Colors.text,
   },
+  textArea: { height: 80, textAlignVertical: 'top' },
+  dateInput: {
+    flexDirection: 'row', alignItems: 'center', gap: 8,
+    backgroundColor: Colors.surface, borderWidth: 1, borderColor: Colors.border,
+    borderRadius: BorderRadius.md, paddingHorizontal: Spacing.md, paddingVertical: 14,
+  },
+  dateText: { fontSize: FontSizes.md, color: Colors.text },
+  genderRow: { flexDirection: 'row', gap: 8 },
+  genderBtn: {
+    flex: 1, backgroundColor: Colors.surface, borderWidth: 1, borderColor: Colors.border,
+    borderRadius: BorderRadius.md, paddingVertical: 14, alignItems: 'center',
+  },
+  genderBtnActive: { backgroundColor: Colors.secondary, borderColor: Colors.secondary },
+  genderBtnText: { fontSize: FontSizes.sm, fontWeight: '700', color: Colors.textSecondary },
+  genderBtnTextActive: { color: '#fff' },
   registerBtn: {
     backgroundColor: Colors.secondary, paddingVertical: 18, borderRadius: BorderRadius.full,
     alignItems: 'center', marginTop: Spacing.sm,

@@ -83,7 +83,7 @@ export default function DashboardLayout() {
         options={{
           title: 'Tarifa',
           tabBarIcon: ({ color, size }) => <Ionicons name="card-outline" size={size} color={color} />,
-          href: primaryRole === 'doctor' ? '/(dashboard)/settings' : null,
+          href: null,
         }}
       />
       

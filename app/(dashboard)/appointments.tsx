@@ -131,10 +131,13 @@ export default function AppointmentsScreen() {
     setRatingModalVisible(true);
   };
   const cancelMutation = useMutation({
-    mutationFn: async (appointmentId: string) => {
+    mutationFn: async ({ appointmentId, notes }: { appointmentId: string; notes?: string }) => {
       const { error } = await supabase
         .from('appointments')
-        .update({ status: 'cancelled' as any })
+        .update({ 
+          status: 'cancelled' as any,
+          notes: notes || 'Cancelada por el paciente'
+        })
         .eq('id', appointmentId);
       if (error) throw error;
     },
@@ -145,15 +148,51 @@ export default function AppointmentsScreen() {
     onError: (err: any) => Toast.show({ type: 'error', text1: 'Error', text2: err.message }),
   });
 
-  const handleCancel = (id: string) => {
-    Alert.alert(
-      '¿Cancelar cita?',
-      'Esta acción no se puede deshacer.',
-      [
-        { text: 'No', style: 'cancel' },
-        { text: 'Sí, cancelar', style: 'destructive', onPress: () => cancelMutation.mutate(id) },
-      ]
-    );
+  const isRefundable = (appointmentDate: string, startTime: string) => {
+    const fullDate = new Date(`${appointmentDate}T${startTime}`);
+    const now = new Date();
+    // Reembolso permitido si faltan al menos 30 minutos PARA el inicio
+    const diffMs = fullDate.getTime() - now.getTime();
+    const diffMins = diffMs / 60000;
+    return diffMins >= 30;
+  };
+
+  const handleCancel = (apt: any) => {
+    const refundable = isRefundable(apt.appointment_date, apt.start_time);
+    
+    if (refundable) {
+      Alert.alert(
+        '¿Confirmar cancelación?',
+        'Faltan más de 30 minutos. Se procesará tu reembolso automáticamente.',
+        [
+          { text: 'No, mantener cita', style: 'cancel' },
+          { 
+            text: 'Sí, cancelar y reembolsar', 
+            style: 'destructive', 
+            onPress: () => cancelMutation.mutate({ 
+              appointmentId: apt.id, 
+              notes: 'REEMBOLSO_APROBADO - Cancelación temprana' 
+            }) 
+          },
+        ]
+      );
+    } else {
+      Alert.alert(
+        '⚠️ Aviso de Políticas',
+        'Faltan menos de 30 minutos para tu cita. Si cancelas ahora, NO tendrás derecho a reembolso. ¿Deseas continuar?',
+        [
+          { text: 'No, mantener cita', style: 'cancel' },
+          { 
+            text: 'Sí, cancelar sin reembolso', 
+            style: 'destructive', 
+            onPress: () => cancelMutation.mutate({ 
+              appointmentId: apt.id, 
+              notes: 'SIN_REEMBOLSO - Cancelación tardía' 
+            }) 
+          },
+        ]
+      );
+    }
   };
 
   const statusMutation = useMutation({
@@ -276,7 +315,7 @@ export default function AppointmentsScreen() {
                         </TouchableOpacity>
                       )}
                       
-                      <TouchableOpacity style={styles.cancelBtn} onPress={() => handleCancel(apt.id)}>
+                      <TouchableOpacity style={styles.cancelBtn} onPress={() => handleCancel(apt)}>
                         <Text style={styles.cancelBtnText}>Cancelar Cita</Text>
                       </TouchableOpacity>
                     </View>
