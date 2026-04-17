@@ -127,7 +127,7 @@ export default function BookAppointmentScreen() {
     refetchInterval: 5000, // Refresh every 5s to keep it accurate
   });
 
-  // Fetch existing appointments
+  // Fetch existing appointments for the doctor
   const { data: existingAppointments } = useQuery({
     queryKey: ['existing-appointments', doctorId, selectedDate],
     queryFn: async () => {
@@ -141,6 +141,34 @@ export default function BookAppointmentScreen() {
     },
     enabled: !!selectedDate,
   });
+
+  // NUEVO: Fetch de las citas del paciente para ese día
+  const { data: patientDayAppointments } = useQuery({
+    queryKey: ['patient-day-appointments', user?.id, selectedDate],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from('appointments')
+        .select('doctor_id, start_time')
+        .eq('patient_id', user!.id)
+        .eq('appointment_date', selectedDate)
+        .in('status', ['scheduled', 'confirmed']); // Solo citas activas
+        
+      if (error) throw error;
+      return data || [];
+    },
+    enabled: !!user?.id && !!selectedDate,
+  });
+
+  // VALIDACIONES
+  const hasAppointmentWithSameDoctorToday = patientDayAppointments?.some(
+    apt => apt.doctor_id === doctorId
+  );
+
+  const isTimeSlotBookedByPatient = (timeString: string) => {
+    return patientDayAppointments?.some(
+      apt => apt.start_time.slice(0, 5) === timeString
+    );
+  };
 
   // Fetch assignments
   const dayOfWeek = selectedDate ? new Date(selectedDate + 'T12:00:00').getDay() : -1;
@@ -442,19 +470,48 @@ export default function BookAppointmentScreen() {
 
         {selectedDate && (
           <View style={styles.slotsSection}>
-            {slots.length === 0 ? (
-              <View style={styles.emptyState}><Ionicons name="calendar-outline" size={48} color={Colors.textMuted} /><Text style={styles.emptyText}>Sin horarios disponibles</Text></View>
+            {hasAppointmentWithSameDoctorToday ? (
+              <View style={styles.errorContainer}>
+                <Ionicons name="alert-circle" size={24} color={Colors.error} />
+                <Text style={styles.errorText}>
+                  Ya tienes una cita programada con este especialista para este día.
+                </Text>
+              </View>
+            ) : slots.length === 0 ? (
+              <View style={styles.emptyState}>
+                <Ionicons name="calendar-outline" size={48} color={Colors.textMuted} />
+                <Text style={styles.emptyText}>Sin horarios disponibles</Text>
+              </View>
             ) : (
               <>
                 {morningSlots.length > 0 && (
                   <View style={styles.slotGroup}>
                     <View style={styles.slotGroupHeader}><Ionicons name="sunny" size={20} color={Colors.secondary} /><Text style={styles.slotGroupTitle}>Mañana</Text></View>
                     <View style={styles.slotGrid}>
-                      {morningSlots.map((slot, i) => (
-                        <TouchableOpacity key={i} style={[styles.slotBtn, selectedSlot?.start === slot.start && styles.slotSelected]} onPress={() => setSelectedSlot(slot)}>
-                          <Text style={[styles.slotText, selectedSlot?.start === slot.start && styles.slotTextSelected]}>{formatTime12h(slot.start)}</Text>
-                        </TouchableOpacity>
-                      ))}
+                      {morningSlots.map((slot, i) => {
+                        const isBookedByMe = isTimeSlotBookedByPatient(slot.start);
+                        return (
+                          <TouchableOpacity 
+                            key={i} 
+                            style={[
+                              styles.slotBtn, 
+                              selectedSlot?.start === slot.start && styles.slotSelected,
+                              isBookedByMe && styles.timeBtnDisabled
+                            ]} 
+                            onPress={() => setSelectedSlot(slot)}
+                            disabled={isBookedByMe}
+                          >
+                            <Text style={[
+                              styles.slotText, 
+                              selectedSlot?.start === slot.start && styles.slotTextSelected,
+                              isBookedByMe && styles.timeTextDisabled
+                            ]}>
+                              {formatTime12h(slot.start)}
+                            </Text>
+                            {isBookedByMe && <Text style={styles.bookedWarning}>Tu horario choca</Text>}
+                          </TouchableOpacity>
+                        );
+                      })}
                     </View>
                   </View>
                 )}
@@ -462,11 +519,30 @@ export default function BookAppointmentScreen() {
                   <View style={styles.slotGroup}>
                     <View style={styles.slotGroupHeader}><Ionicons name="moon" size={20} color={Colors.primary} /><Text style={styles.slotGroupTitle}>Tarde</Text></View>
                     <View style={styles.slotGrid}>
-                      {afternoonSlots.map((slot, i) => (
-                        <TouchableOpacity key={i} style={[styles.slotBtn, selectedSlot?.start === slot.start && styles.slotSelected]} onPress={() => setSelectedSlot(slot)}>
-                          <Text style={[styles.slotText, selectedSlot?.start === slot.start && styles.slotTextSelected]}>{formatTime12h(slot.start)}</Text>
-                        </TouchableOpacity>
-                      ))}
+                      {afternoonSlots.map((slot, i) => {
+                        const isBookedByMe = isTimeSlotBookedByPatient(slot.start);
+                        return (
+                          <TouchableOpacity 
+                            key={i} 
+                            style={[
+                              styles.slotBtn, 
+                              selectedSlot?.start === slot.start && styles.slotSelected,
+                              isBookedByMe && styles.timeBtnDisabled
+                            ]} 
+                            onPress={() => setSelectedSlot(slot)}
+                            disabled={isBookedByMe}
+                          >
+                            <Text style={[
+                              styles.slotText, 
+                              selectedSlot?.start === slot.start && styles.slotTextSelected,
+                              isBookedByMe && styles.timeTextDisabled
+                            ]}>
+                              {formatTime12h(slot.start)}
+                            </Text>
+                            {isBookedByMe && <Text style={styles.bookedWarning}>Tu horario choca</Text>}
+                          </TouchableOpacity>
+                        );
+                      })}
                     </View>
                   </View>
                 )}
@@ -626,4 +702,11 @@ const styles = StyleSheet.create({
   reviewStars: { flexDirection: 'row', gap: 2 },
   reviewComment: { fontSize: 12, color: Colors.textSecondary, lineHeight: 18, marginBottom: 8, height: 54 },
   reviewDate: { fontSize: 10, color: Colors.textMuted, fontWeight: '600' },
+
+  // Estilos Nuevos para Validaciones
+  timeBtnDisabled: { backgroundColor: '#f1f5f9', borderColor: '#e2e8f0', opacity: 0.6 },
+  timeTextDisabled: { color: '#94a3b8', textDecorationLine: 'line-through' },
+  bookedWarning: { fontSize: 9, color: '#ef4444', fontWeight: '800', marginTop: 2 },
+  errorContainer: { flexDirection: 'row', alignItems: 'center', backgroundColor: '#fef2f2', padding: 16, borderRadius: 12, borderWidth: 1, borderColor: '#fecaca', gap: 8, marginVertical: 16 },
+  errorText: { flex: 1, color: '#b91c1c', fontSize: 13, fontWeight: '600' }
 });

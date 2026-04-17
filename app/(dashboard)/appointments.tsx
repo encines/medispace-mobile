@@ -151,10 +151,10 @@ export default function AppointmentsScreen() {
   const isRefundable = (appointmentDate: string, startTime: string) => {
     const fullDate = new Date(`${appointmentDate}T${startTime}`);
     const now = new Date();
-    // Reembolso permitido si faltan al menos 30 minutos PARA el inicio
+    // Reembolso permitido si faltan al menos 24 horas PARA el inicio
     const diffMs = fullDate.getTime() - now.getTime();
-    const diffMins = diffMs / 60000;
-    return diffMins >= 30;
+    const diffHours = diffMs / (1000 * 60 * 60);
+    return diffHours >= 24;
   };
 
   const handleCancel = (apt: any) => {
@@ -163,7 +163,7 @@ export default function AppointmentsScreen() {
     if (refundable) {
       Alert.alert(
         '¿Confirmar cancelación?',
-        'Faltan más de 30 minutos. Se procesará tu reembolso automáticamente.',
+        'Faltan más de 24 horas. Se procesará tu reembolso completo automáticamente.',
         [
           { text: 'No, mantener cita', style: 'cancel' },
           { 
@@ -171,7 +171,7 @@ export default function AppointmentsScreen() {
             style: 'destructive', 
             onPress: () => cancelMutation.mutate({ 
               appointmentId: apt.id, 
-              notes: 'REEMBOLSO_APROBADO - Cancelación temprana' 
+              notes: 'REEMBOLSO_100 - Cancelación con más de 24h' 
             }) 
           },
         ]
@@ -179,15 +179,15 @@ export default function AppointmentsScreen() {
     } else {
       Alert.alert(
         '⚠️ Aviso de Políticas',
-        'Faltan menos de 30 minutos para tu cita. Si cancelas ahora, NO tendrás derecho a reembolso. ¿Deseas continuar?',
+        'Faltan menos de 24 horas para tu cita. Se retendrá el 50% del costo total por políticas de cancelación. Si pagaste el 100%, se te reembolsará la mitad restante. ¿Deseas continuar?',
         [
           { text: 'No, mantener cita', style: 'cancel' },
           { 
-            text: 'Sí, cancelar sin reembolso', 
+            text: 'Sí, cancelar con penalización', 
             style: 'destructive', 
             onPress: () => cancelMutation.mutate({ 
               appointmentId: apt.id, 
-              notes: 'SIN_REEMBOLSO - Cancelación tardía' 
+              notes: 'PENALIZACION_50 - Cancelación en menos de 24h' 
             }) 
           },
         ]

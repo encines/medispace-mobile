@@ -48,8 +48,11 @@ export default function LoginScreen() {
             style={styles.logo} 
             resizeMode="contain"
           />
+          <Text style={styles.brandName}>MediSpace</Text>
+          <Text style={styles.brandSlogan}>— CONSULTORIOS MÉDICOS —</Text>
+
           <Text style={styles.title}>Bienvenido</Text>
-          <Text style={styles.subtitle}>Salud digital a un clic</Text>
+          <Text style={styles.subtitle}>Salud Digital a un Clic</Text>
         </View>
       </LinearGradient>
 
@@ -118,14 +121,16 @@ export default function LoginScreen() {
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: Colors.background },
-  headerBackground: { height: 320, borderBottomLeftRadius: 60, borderBottomRightRadius: 60, overflow: 'hidden' },
-  headerContent: { alignItems: 'center', justifyContent: 'center', marginTop: 10 },
+  headerBackground: { height: 430, borderBottomLeftRadius: 60, borderBottomRightRadius: 60, overflow: 'hidden' },
+  headerContent: { alignItems: 'center', justifyContent: 'center', marginTop: -40 },
   backBtn: { marginLeft: Spacing.lg, marginTop: Spacing.sm },
-  logo: { width: 180, height: 60, marginBottom: 10 },
-  title: { fontSize: 28, fontWeight: '900', color: Colors.white, letterSpacing: -0.5 },
+  logo: { width: 280, height: 140, marginBottom: -15 }, 
+  brandName: { fontSize: 26, fontWeight: '900', color: Colors.white, letterSpacing: 0.5, marginBottom: 2 },
+  brandSlogan: { fontSize: 11, fontWeight: '700', color: 'rgba(255,255,255,0.8)', letterSpacing: 1.5, marginBottom: 40 },
+  title: { fontSize: 22, fontWeight: '900', color: Colors.white, letterSpacing: -0.5 },
   subtitle: { fontSize: 16, color: 'rgba(255,255,255,0.7)', fontWeight: '500' },
   
-  formArea: { flex: 1, marginTop: -60 },
+  formArea: { flex: 1, marginTop: -70 },
   scrollContent: { paddingHorizontal: Spacing.lg, paddingBottom: 40 },
   formCard: { 
     backgroundColor: Colors.white, borderRadius: BorderRadius.xxl, 

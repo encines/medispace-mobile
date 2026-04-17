@@ -1,5 +1,6 @@
 import { useState } from 'react';
-import { View, Text, StyleSheet, ScrollView, TouchableOpacity, TextInput, ActivityIndicator, Image } from 'react-native';
+import { View, Text, StyleSheet, ScrollView, TouchableOpacity, TextInput, ActivityIndicator } from 'react-native';
+import { Image } from 'expo-image';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useQuery } from '@tanstack/react-query';
 import { useRouter } from 'expo-router';
@@ -103,7 +104,7 @@ export default function CatalogScreen() {
             >
               <View style={styles.avatar}>
                 {doctor.avatar_url ? (
-                  <Image source={{ uri: doctor.avatar_url }} style={styles.avatarImage} />
+                  <Image source={{ uri: doctor.avatar_url }} style={styles.avatarImage} cachePolicy="memory-disk" />
                 ) : (
                   <Text style={styles.avatarText}>
                     {doctor.first_name?.[0]}{doctor.last_name?.[0]}

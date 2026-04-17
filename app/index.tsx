@@ -16,22 +16,22 @@ export default function WelcomeScreen() {
             <Image source={require('../assets/logo.png')} style={styles.logoImg} />
           </View>
           <Text style={styles.logo}>MediSpace</Text>
-          <Text style={styles.subtitle}>Tu salud, nuestra prioridad</Text>
+          <Text style={styles.subtitle}>Tu Salud, Nuestra Prioridad</Text>
         </View>
 
         {/* Features */}
         <View style={styles.features}>
           <View style={styles.featureRow}>
             <Ionicons name="calendar-outline" size={22} color={Colors.secondary} />
-            <Text style={styles.featureText}>Agenda citas al instante</Text>
+            <Text style={styles.featureText}>Agenda Citas al Instante</Text>
           </View>
           <View style={styles.featureRow}>
             <Ionicons name="people-outline" size={22} color={Colors.secondary} />
-            <Text style={styles.featureText}>Encuentra especialistas</Text>
+            <Text style={styles.featureText}>Encuentra Especialistas</Text>
           </View>
           <View style={styles.featureRow}>
             <Ionicons name="document-text-outline" size={22} color={Colors.secondary} />
-            <Text style={styles.featureText}>Historial médico digital</Text>
+            <Text style={styles.featureText}>Historial Médico Digital</Text>
           </View>
         </View>
 

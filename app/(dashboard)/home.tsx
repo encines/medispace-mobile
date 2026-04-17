@@ -1,5 +1,6 @@
 import { useState } from 'react';
-import { View, Text, StyleSheet, ScrollView, TouchableOpacity, RefreshControl, Image, StatusBar } from 'react-native';
+import { View, Text, StyleSheet, ScrollView, TouchableOpacity, RefreshControl, StatusBar } from 'react-native';
+import { Image } from 'expo-image';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useQueryClient } from '@tanstack/react-query';
 import { Ionicons } from '@expo/vector-icons';
@@ -57,7 +58,7 @@ export default function HomeScreen() {
             </View>
             <TouchableOpacity onPress={() => router.push('/(dashboard)/profile')} style={styles.profileBtn}>
               {profile?.avatar_url ? (
-                <Image source={{ uri: profile.avatar_url }} style={styles.profileImage} />
+                <Image source={{ uri: profile.avatar_url }} style={styles.profileImage} cachePolicy="memory-disk" />
               ) : (
                 <View style={styles.profilePlaceholder}>
                   <Ionicons name="person" size={24} color="white" />

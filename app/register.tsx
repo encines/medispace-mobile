@@ -102,7 +102,7 @@ export default function RegisterScreen() {
 
             <View style={styles.inputGroup}>
               <Text style={styles.label}>Teléfono</Text>
-              <TextInput style={styles.input} placeholder="(612) 123-4567" placeholderTextColor={Colors.textMuted} keyboardType="phone-pad" value={phone} onChangeText={setPhone} />
+              <TextInput style={styles.input} placeholder="667 136 1586"  placeholderTextColor={Colors.textMuted} keyboardType="phone-pad" value={phone} onChangeText={setPhone} />
             </View>
 
             <View style={styles.row}>
