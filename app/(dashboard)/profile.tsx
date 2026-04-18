@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { View, Text, StyleSheet, ScrollView, TouchableOpacity, TextInput, ActivityIndicator, Alert } from 'react-native';
+import { View, Text, StyleSheet, ScrollView, TouchableOpacity, TextInput, ActivityIndicator } from 'react-native';
 import { Image } from 'expo-image';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
@@ -17,6 +17,7 @@ export default function ProfileScreen() {
   const router = useRouter();
   const { profile, roles, signOut, user, refreshProfile } = useAuth();
   const [uploading, setUploading] = useState(false);
+  const isDoctor = roles.includes('doctor');
   const [refreshing, setRefreshing] = useState(false);
 
   const onRefresh = async () => {
@@ -42,45 +43,59 @@ export default function ProfileScreen() {
       allowsEditing: true,
       aspect: [1, 1],
       quality: 0.7,
+      base64: true, // Solicitar base64 explícitamente
     });
 
-    if (!result.canceled && result.assets[0].uri) {
-      uploadAvatar(result.assets[0].uri);
+    if (!result.canceled && result.assets[0].base64) {
+      uploadAvatar(result.assets[0].uri, result.assets[0].base64);
     }
   };
 
-  const uploadAvatar = async (uri: string) => {
+  const uploadAvatar = async (uri: string, base64Data: string) => {
     if (!user) return;
     setUploading(true);
 
     try {
+      // 1. Convert Base64 to Uint8Array (the most stable way in RN)
+      const byteCharacters = atob(base64Data);
+      const byteNumbers = new Array(byteCharacters.length);
+      for (let i = 0; i < byteCharacters.length; i++) {
+        byteNumbers[i] = byteCharacters.charCodeAt(i);
+      }
+      const byteArray = new Uint8Array(byteNumbers);
+
+      if (byteArray.length === 0) {
+        throw new Error("Los datos de la imagen están vacíos.");
+      }
+
       const fileExt = uri.split('.').pop()?.toLowerCase() || 'jpg';
       const fileName = `${Date.now()}-${Math.random().toString(36).substring(7)}.${fileExt}`;
       const filePath = `${user.id}/${fileName}`;
 
-      // Correct way to upload a file in React Native to Supabase
-      const response = await fetch(uri);
-      const blob = await response.blob();
-
+      // 2. Upload to storage using Uint8Array
       const { error: uploadError } = await supabase.storage
         .from('avatars')
-        .upload(filePath, blob, {
+        .upload(filePath, byteArray, {
           contentType: `image/${fileExt === 'jpg' || fileExt === 'jpeg' ? 'jpeg' : fileExt}`,
           upsert: true
         });
 
       if (uploadError) throw uploadError;
 
+      // 3. Get Public URL
       const { data: { publicUrl } } = supabase.storage
         .from('avatars')
         .getPublicUrl(filePath);
 
+      // 4. Update Profile
       const { error: updateError } = await supabase
         .from('profiles')
         .update({ avatar_url: publicUrl })
         .eq('user_id', user.id);
 
       if (updateError) throw updateError;
+
+      console.log("Avatar updated with Base64. URL:", publicUrl, "Bytes:", byteArray.length);
 
       await refreshProfile();
       Toast.show({ type: 'success', text1: '¡Éxito!', text2: 'Foto de perfil actualizada correctamente' });
@@ -91,7 +106,6 @@ export default function ProfileScreen() {
       setUploading(false);
     }
   };
-
 
   const menuItems = [
     { 
@@ -143,7 +157,7 @@ export default function ProfileScreen() {
                 style={styles.avatarImage} 
                 cachePolicy="memory-disk"
                 onError={(e) => {
-                  console.warn("Failed to load avatar:", e.error, "URL:", profile.avatar_url);
+                  console.warn("Failed to load avatar:", e.nativeEvent.error, "URL:", profile.avatar_url);
                 }}
               />
             ) : (
