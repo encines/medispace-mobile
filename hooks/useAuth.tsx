@@ -52,56 +52,101 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const [profile, setProfile] = useState<Profile | null>(null);
   const [loading, setLoading] = useState(true);
 
+  const clearAuth = () => {
+    setUser(null);
+    setSession(null);
+    setRoles([]);
+    setProfile(null);
+  };
+
   const fetchUserData = async (userId: string) => {
-    const [rolesRes, profileRes] = await Promise.all([
-      supabase.from('user_roles').select('role').eq('user_id', userId),
-      supabase.from('profiles').select('user_id, first_name, last_name, phone, specialty, consultation_fee, medical_license, date_of_birth, gender, address, blood_type, allergies, emergency_contact_name, emergency_contact_phone, avatar_url').eq('user_id', userId).single(),
-    ]);
-    if (rolesRes.data) setRoles(rolesRes.data.map(r => r.role as AppRole));
-    if (profileRes.data) setProfile(profileRes.data);
+    try {
+      const [rolesRes, profileRes] = await Promise.all([
+        supabase.from('user_roles').select('role').eq('user_id', userId),
+        supabase.from('profiles').select('user_id, first_name, last_name, phone, specialty, consultation_fee, medical_license, date_of_birth, gender, address, blood_type, allergies, emergency_contact_name, emergency_contact_phone, avatar_url').eq('user_id', userId).single(),
+      ]);
+      
+      if (rolesRes.error && rolesRes.error.code !== 'PGRST116') {
+        console.error('Error fetching roles:', rolesRes.error);
+      }
+      
+      if (profileRes.error && profileRes.error.code !== 'PGRST116') {
+        console.error('Error fetching profile:', profileRes.error);
+      }
+
+      setRoles(rolesRes.data?.map(r => r.role as AppRole) || []);
+      setProfile(profileRes.data || null);
+    } catch (error) {
+      console.error('Unexpected error in fetchUserData:', error);
+    }
   };
 
   const refreshProfile = async () => {
-    if (user?.id) await fetchUserData(user.id);
+    if (user?.id) {
+      await fetchUserData(user.id);
+    }
   };
 
   useEffect(() => {
-    const { data: { subscription } } = supabase.auth.onAuthStateChange(async (_event, session) => {
-      setSession(session);
-      setUser(session?.user ?? null);
-      if (session?.user) {
-        await fetchUserData(session.user.id);
-      } else {
-        setRoles([]);
-        setProfile(null);
+    // 1. Initial manual check
+    const checkSession = async () => {
+      try {
+        const { data: { session: initialSession }, error } = await supabase.auth.getSession();
+        if (error) {
+          // Si hay error recuperando sesión inicial, limpiamos
+          console.log('Session recovery error:', error.message);
+          clearAuth();
+        } else if (initialSession) {
+          setSession(initialSession);
+          setUser(initialSession.user);
+          await fetchUserData(initialSession.user.id);
+        }
+      } catch (err) {
+        console.error('Auth init error:', err);
+      } finally {
+        setLoading(false);
       }
+    };
+
+    checkSession();
+
+    // 2. Continuous listener
+    const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, currentSession) => {
+      console.log('Auth Event:', event);
+
+      if (event === 'SIGNED_IN' || event === 'USER_UPDATED') {
+        setSession(currentSession);
+        setUser(currentSession?.user ?? null);
+        if (currentSession?.user) {
+          await fetchUserData(currentSession.user.id);
+        }
+      } else if (event === 'SIGNED_OUT' || event === 'TOKEN_REFRESH_FAILED') {
+        clearAuth();
+      } else if (currentSession) {
+        // Otros eventos con sesión activa
+        setSession(currentSession);
+        setUser(currentSession.user);
+      }
+
       setLoading(false);
     });
 
-    supabase.auth.getSession().then(async ({ data: { session } }) => {
-      setSession(session);
-      setUser(session?.user ?? null);
-      if (session?.user) {
-        await fetchUserData(session.user.id);
-      }
-      setLoading(false);
-    });
-
-    return () => subscription.unsubscribe();
+    return () => {
+      subscription.unsubscribe();
+    };
   }, []);
 
   const signOut = async () => {
     try {
       const { error } = await supabase.auth.signOut();
       if (error) throw error;
-      Toast.show({ type: 'success', text1: 'Sesión cerrada correctamente' });
     } catch (error: any) {
-      Toast.show({ type: 'error', text1: 'Error', text2: error.message });
+      console.error('SignOut error:', error.message);
+      // Forzamos limpieza local aunque falle el servidor
+      clearAuth();
+      Toast.show({ type: 'error', text1: 'Error al cerrar sesión', text2: 'Se ha forzado el cierre local.' });
     } finally {
-      setUser(null);
-      setSession(null);
-      setRoles([]);
-      setProfile(null);
+      Toast.show({ type: 'success', text1: 'Sesión cerrada' });
     }
   };
 

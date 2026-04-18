@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { View, Text, StyleSheet, ScrollView, TouchableOpacity, TextInput, ActivityIndicator } from 'react-native';
+import { View, Text, StyleSheet, ScrollView, TouchableOpacity, TextInput, ActivityIndicator, Alert } from 'react-native';
 import { Image } from 'expo-image';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
@@ -15,9 +15,9 @@ import { Colors, Spacing, FontSizes, BorderRadius, Shadows } from '../../constan
 
 export default function ProfileScreen() {
   const router = useRouter();
-  const { profile, roles, signOut, user, refreshProfile } = useAuth();
+  const { profile, roles = [], signOut, user, refreshProfile } = useAuth();
   const [uploading, setUploading] = useState(false);
-  const isDoctor = roles.includes('doctor');
+  const isDoctor = roles?.includes('doctor');
   const [refreshing, setRefreshing] = useState(false);
 
   const onRefresh = async () => {
@@ -26,9 +26,9 @@ export default function ProfileScreen() {
     setRefreshing(false);
   };
 
-  const primaryRole = roles.includes('admin') ? 'Administrador'
-    : roles.includes('doctor') ? 'Doctor'
-    : roles.includes('receptionist') ? 'Recepcionista'
+  const primaryRole = roles?.includes('admin') ? 'Administrador'
+    : roles?.includes('doctor') ? 'Doctor'
+    : roles?.includes('receptionist') ? 'Recepcionista'
     : 'Paciente';
 
   const pickImage = async () => {
@@ -56,13 +56,21 @@ export default function ProfileScreen() {
     setUploading(true);
 
     try {
-      // 1. Convert Base64 to Uint8Array (the most stable way in RN)
-      const byteCharacters = atob(base64Data);
-      const byteNumbers = new Array(byteCharacters.length);
-      for (let i = 0; i < byteCharacters.length; i++) {
-        byteNumbers[i] = byteCharacters.charCodeAt(i);
+      // 1. Convert Base64 (manual implementation for RN compatibility)
+      const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/=';
+      let str = base64Data.replace(/=+$/, '');
+      let byteArray = new Uint8Array((str.length * 3) >> 2);
+      
+      for (let i = 0, j = 0; i < str.length; i += 4) {
+        let a = chars.indexOf(str[i]);
+        let b = chars.indexOf(str[i + 1]);
+        let c = chars.indexOf(str[i + 2]);
+        let d = chars.indexOf(str[i + 3]);
+        
+        byteArray[j++] = (a << 2) | (b >> 4);
+        if (c !== -1 && c !== 64) byteArray[j++] = ((b & 15) << 4) | (c >> 2);
+        if (d !== -1 && d !== 64) byteArray[j++] = ((c & 3) << 6) | d;
       }
-      const byteArray = new Uint8Array(byteNumbers);
 
       if (byteArray.length === 0) {
         throw new Error("Los datos de la imagen están vacíos.");
@@ -157,7 +165,7 @@ export default function ProfileScreen() {
                 style={styles.avatarImage} 
                 cachePolicy="memory-disk"
                 onError={(e) => {
-                  console.warn("Failed to load avatar:", e.nativeEvent.error, "URL:", profile.avatar_url);
+                  console.warn("Failed to load avatar:", e.error, "URL:", profile.avatar_url);
                 }}
               />
             ) : (

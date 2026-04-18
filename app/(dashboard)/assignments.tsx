@@ -151,12 +151,59 @@ export default function GlobalAssignmentsScreen() {
     mutationFn: async () => {
       if (!selectedDoctorId || !selectedOfficeId || selectedDays.length === 0) return;
       
+      const newStart = format(startTime, 'HH:mm:ss');
+      const newEnd = format(endTime, 'HH:mm:ss');
+
+      // 1. Fetch ALL existing assignments to check for conflicts
+      const { data: existing, error: fetchError } = await supabase
+        .from('doctor_assignments')
+        .select(`
+          *,
+          profiles(first_name, last_name),
+          offices(name)
+        `)
+        .in('day_of_week', selectedDays);
+
+      if (fetchError) throw fetchError;
+
+      // 2. Validate conflicts
+      for (const day of selectedDays) {
+        const dayConflicts = existing?.filter(ex => ex.day_of_week === day);
+        
+        for (const ex of (dayConflicts || [])) {
+          const overlap = 
+            (newStart < ex.end_time && newEnd > ex.start_time);
+          
+          if (overlap) {
+            // Normalize profile access
+            const profile = Array.isArray(ex.profiles) ? ex.profiles[0] : ex.profiles;
+            const docName = profile ? `Dr. ${profile.first_name} ${profile.last_name}` : 'el médico';
+
+            // Check Doctor Conflict
+            if (ex.doctor_id === selectedDoctorId) {
+              const dayName = daysList[day];
+              throw new Error(
+                `Conflicto de Horario: El ${docName} ya tiene una asignación el ${dayName} de ${ex.start_time.slice(0, 5)} a ${ex.end_time.slice(0, 5)} en ${ex.offices?.name}.`
+              );
+            }
+            
+            // Check Office Conflict
+            if (ex.office_id === selectedOfficeId) {
+              const dayName = daysList[day];
+              throw new Error(
+                `Conflicto de Consultorio: El consultorio "${ex.offices?.name}" ya está ocupado el ${dayName} de ${ex.start_time.slice(0, 5)} a ${ex.end_time.slice(0, 5)} por ${docName}.`
+              );
+            }
+          }
+        }
+      }
+
       const inserts = selectedDays.map(day => ({
         doctor_id: selectedDoctorId,
         office_id: selectedOfficeId,
         day_of_week: day,
-        start_time: format(startTime, 'HH:mm:ss'),
-        end_time: format(endTime, 'HH:mm:ss'),
+        start_time: newStart,
+        end_time: newEnd,
         modality: modality,
       }));
       
@@ -437,6 +484,8 @@ export default function GlobalAssignmentsScreen() {
                   mode="time"
                   is24Hour={true}
                   display={Platform.OS === 'ios' ? 'spinner' : 'default'}
+                  themeVariant="light"
+                  textColor={Colors.primary}
                   onChange={(_: any, date?: Date) => {
                     setShowTimePicker(null);
                     if (date) {

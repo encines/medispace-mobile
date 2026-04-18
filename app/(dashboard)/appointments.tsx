@@ -46,25 +46,21 @@ export default function AppointmentsScreen() {
 
       if (!appointmentsResponse || appointmentsResponse.length === 0) return [];
 
-      // Manual join with profiles
-      // If doctor, we want patient profiles. If patient, we want doctor profiles.
+      // Manual join with profiles and offices
       const profileIds = Array.from(new Set(appointmentsResponse.map(a => isDoctor ? a.patient_id : a.doctor_id)));
+      const officeIds = Array.from(new Set(appointmentsResponse.map(a => a.office_id).filter(Boolean)));
       
-      const { data: profiles } = await supabase
-        .from('profiles')
-        .select('user_id, first_name, last_name, specialty, phone')
-        .in('user_id', profileIds);
-
-      // Manual join with ratings (to see if feedback already exists)
-      const { data: existingRatings } = await supabase
-        .from('ratings')
-        .select('appointment_id, score')
-        .in('appointment_id', appointmentsResponse.map(a => a.id));
+      const [profilesResult, officesResult, ratingsResult] = await Promise.all([
+        supabase.from('profiles').select('user_id, first_name, last_name, specialty, phone').in('user_id', profileIds),
+        supabase.from('offices').select('id, name, branches(name)').in('id', officeIds),
+        supabase.from('ratings').select('appointment_id, score').in('appointment_id', appointmentsResponse.map(a => a.id))
+      ]);
 
       return appointmentsResponse.map(apt => ({
         ...apt,
-        profiles: profiles?.find(p => p.user_id === (isDoctor ? apt.patient_id : apt.doctor_id)) || null,
-        userRating: existingRatings?.find(r => r.appointment_id === apt.id) || null
+        profiles: profilesResult.data?.find(p => p.user_id === (isDoctor ? apt.patient_id : apt.doctor_id)) || null,
+        offices: officesResult.data?.find(o => o.id === apt.office_id) || null,
+        userRating: ratingsResult.data?.find(r => r.appointment_id === apt.id) || null
       }));
     },
     enabled: !!user?.id,
@@ -286,6 +282,15 @@ export default function AppointmentsScreen() {
                     {!isDoctor && apt.profiles?.specialty && (
                       <Text style={styles.cardSpecialty}>{apt.profiles.specialty}</Text>
                     )}
+                    
+                    {apt.offices && (
+                      <View style={styles.locationContainer}>
+                        <Ionicons name="location-outline" size={14} color={Colors.secondary} />
+                        <Text style={styles.locationText}>
+                          {apt.offices.branches?.name} · {apt.offices.name}
+                        </Text>
+                      </View>
+                    )}
                     <View style={styles.cardActions}>
                       {isDoctor && ['scheduled', 'confirmed'].includes(apt.status) && (
                         <TouchableOpacity 
@@ -484,4 +489,6 @@ const styles = StyleSheet.create({
   submitBtnText: { color: 'white', fontWeight: '800', fontSize: FontSizes.md },
   cancelLink: { flex: 1, alignItems: 'center' },
   cancelLinkText: { color: Colors.textMuted, fontWeight: '700', fontSize: FontSizes.sm },
+  locationContainer: { flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 8, backgroundColor: '#f0f9ff', padding: 8, borderRadius: 8, alignSelf: 'flex-start' },
+  locationText: { fontSize: 12, fontWeight: '700', color: '#0369a1' },
 });

@@ -1,5 +1,5 @@
-import { useState } from 'react';
-import { View, Text, TextInput, TouchableOpacity, StyleSheet, KeyboardAvoidingView, Platform, ScrollView, ActivityIndicator, Image, Dimensions } from 'react-native';
+import { useState, useEffect } from 'react';
+import { View, Text, TextInput, TouchableOpacity, StyleSheet, KeyboardAvoidingView, Platform, ScrollView, ActivityIndicator, Image, Dimensions, Keyboard } from 'react-native';
 import { useRouter } from 'expo-router';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
@@ -16,6 +16,23 @@ export default function LoginScreen() {
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [loading, setLoading] = useState(false);
+  const [isKeyboardVisible, setKeyboardVisible] = useState(false);
+
+  useEffect(() => {
+    const keyboardDidShowListener = Keyboard.addListener(
+      'keyboardDidShow',
+      () => setKeyboardVisible(true)
+    );
+    const keyboardDidHideListener = Keyboard.addListener(
+      'keyboardDidHide',
+      () => setKeyboardVisible(false)
+    );
+
+    return () => {
+      keyboardDidHideListener.remove();
+      keyboardDidShowListener.remove();
+    };
+  }, []);
 
   const handleLogin = async () => {
     if (!email.trim() || !password.trim()) {
@@ -36,27 +53,41 @@ export default function LoginScreen() {
 
   return (
     <View style={styles.container}>
-      <LinearGradient colors={Gradients.primary} style={styles.headerBackground}>
+      <LinearGradient 
+        colors={Gradients.primary} 
+        style={[
+          styles.headerBackground, 
+          isKeyboardVisible && styles.headerBackgroundCollapsed
+        ]}
+      >
         <SafeAreaView>
           <TouchableOpacity onPress={() => router.back()} style={styles.backBtn}>
             <Ionicons name="arrow-back" size={24} color={Colors.white} />
           </TouchableOpacity>
         </SafeAreaView>
-        <View style={styles.headerContent}>
+        
+        <View style={[styles.headerContent, isKeyboardVisible && styles.headerContentCollapsed]}>
           <Image 
             source={require('../assets/logo_completo.png')} 
-            style={styles.logo} 
+            style={[styles.logo, isKeyboardVisible && styles.logoCollapsed]} 
             resizeMode="contain"
           />
-          <Text style={styles.brandName}>MediSpace</Text>
-          <Text style={styles.brandSlogan}>— CONSULTORIOS MÉDICOS —</Text>
-
-          <Text style={styles.title}>Bienvenido</Text>
-          <Text style={styles.subtitle}>Salud Digital a un Clic</Text>
+          {!isKeyboardVisible && (
+            <>
+              <Text style={styles.brandName}>MediSpace</Text>
+              <Text style={styles.brandSlogan}>— CONSULTORIOS MÉDICOS —</Text>
+              <Text style={styles.title}>Bienvenido</Text>
+              <Text style={styles.subtitle}>Salud Digital a un Clic</Text>
+            </>
+          )}
         </View>
       </LinearGradient>
 
-      <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : 'height'} style={styles.formArea}>
+      <KeyboardAvoidingView 
+        behavior={Platform.OS === 'ios' ? 'padding' : 'height'} 
+        style={[styles.formArea, isKeyboardVisible && styles.formAreaCollapsed]}
+        keyboardVerticalOffset={Platform.OS === 'ios' ? 0 : 20}
+      >
         <ScrollView contentContainerStyle={styles.scrollContent} keyboardShouldPersistTaps="handled">
           <View style={styles.formCard}>
             <Text style={styles.formTitle}>Inicia Sesión</Text>
@@ -122,15 +153,19 @@ export default function LoginScreen() {
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: Colors.background },
   headerBackground: { height: 430, borderBottomLeftRadius: 60, borderBottomRightRadius: 60, overflow: 'hidden' },
+  headerBackgroundCollapsed: { height: 160, borderBottomLeftRadius: 30, borderBottomRightRadius: 30 },
   headerContent: { alignItems: 'center', justifyContent: 'center', marginTop: -40 },
+  headerContentCollapsed: { marginTop: 0, flexDirection: 'row', paddingHorizontal: 20 },
   backBtn: { marginLeft: Spacing.lg, marginTop: Spacing.sm },
   logo: { width: 280, height: 140, marginBottom: -15 }, 
+  logoCollapsed: { width: 100, height: 50, marginBottom: 0 },
   brandName: { fontSize: 26, fontWeight: '900', color: Colors.white, letterSpacing: 0.5, marginBottom: 2 },
   brandSlogan: { fontSize: 11, fontWeight: '700', color: 'rgba(255,255,255,0.8)', letterSpacing: 1.5, marginBottom: 40 },
   title: { fontSize: 22, fontWeight: '900', color: Colors.white, letterSpacing: -0.5 },
   subtitle: { fontSize: 16, color: 'rgba(255,255,255,0.7)', fontWeight: '500' },
   
   formArea: { flex: 1, marginTop: -70 },
+  formAreaCollapsed: { marginTop: -20 },
   scrollContent: { paddingHorizontal: Spacing.lg, paddingBottom: 40 },
   formCard: { 
     backgroundColor: Colors.white, borderRadius: BorderRadius.xxl, 

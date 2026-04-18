@@ -508,6 +508,12 @@ export default function BookAppointmentScreen() {
                             ]}>
                               {formatTime12h(slot.start)}
                             </Text>
+                            <View style={styles.slotLocationRow}>
+                              <Ionicons name="business-outline" size={10} color={Colors.textMuted} />
+                              <Text style={styles.slotLocationText} numberOfLines={1}>
+                                {slot.office?.branches?.name} - {slot.office?.name}
+                              </Text>
+                            </View>
                             {isBookedByMe && <Text style={styles.bookedWarning}>Tu horario choca</Text>}
                           </TouchableOpacity>
                         );
@@ -539,6 +545,12 @@ export default function BookAppointmentScreen() {
                             ]}>
                               {formatTime12h(slot.start)}
                             </Text>
+                            <View style={styles.slotLocationRow}>
+                              <Ionicons name="business-outline" size={10} color={Colors.textMuted} />
+                              <Text style={styles.slotLocationText} numberOfLines={1}>
+                                {slot.office?.branches?.name} - {slot.office?.name}
+                              </Text>
+                            </View>
                             {isBookedByMe && <Text style={styles.bookedWarning}>Tu horario choca</Text>}
                           </TouchableOpacity>
                         );
@@ -708,5 +720,7 @@ const styles = StyleSheet.create({
   timeTextDisabled: { color: '#94a3b8', textDecorationLine: 'line-through' },
   bookedWarning: { fontSize: 9, color: '#ef4444', fontWeight: '800', marginTop: 2 },
   errorContainer: { flexDirection: 'row', alignItems: 'center', backgroundColor: '#fef2f2', padding: 16, borderRadius: 12, borderWidth: 1, borderColor: '#fecaca', gap: 8, marginVertical: 16 },
-  errorText: { flex: 1, color: '#b91c1c', fontSize: 13, fontWeight: '600' }
+  errorText: { flex: 1, color: '#b91c1c', fontSize: 13, fontWeight: '600' },
+  slotLocationRow: { flexDirection: 'row', alignItems: 'center', gap: 4, marginTop: 4 },
+  slotLocationText: { fontSize: 10, color: Colors.textMuted, fontWeight: '600' },
 });

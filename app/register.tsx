@@ -1,5 +1,5 @@
-import { useState } from 'react';
-import { View, Text, TextInput, TouchableOpacity, StyleSheet, KeyboardAvoidingView, Platform, ScrollView, ActivityIndicator } from 'react-native';
+import { useState, useEffect } from 'react';
+import { View, Text, TextInput, TouchableOpacity, StyleSheet, KeyboardAvoidingView, Platform, ScrollView, ActivityIndicator, Keyboard } from 'react-native';
 import { useRouter } from 'expo-router';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
@@ -23,6 +23,23 @@ export default function RegisterScreen() {
   const [clinicalNotes, setClinicalNotes] = useState('');
   const [showDatePicker, setShowDatePicker] = useState(false);
   const [loading, setLoading] = useState(false);
+  const [isKeyboardVisible, setKeyboardVisible] = useState(false);
+
+  useEffect(() => {
+    const keyboardDidShowListener = Keyboard.addListener(
+      'keyboardDidShow',
+      () => setKeyboardVisible(true)
+    );
+    const keyboardDidHideListener = Keyboard.addListener(
+      'keyboardDidHide',
+      () => setKeyboardVisible(false)
+    );
+
+    return () => {
+      keyboardDidHideListener.remove();
+      keyboardDidShowListener.remove();
+    };
+  }, []);
 
   const handleRegister = async () => {
     if (!firstName.trim() || !lastName.trim() || !email.trim() || !password.trim() || !birthDate || !gender) {
@@ -77,9 +94,9 @@ export default function RegisterScreen() {
           </TouchableOpacity>
 
           {/* Header */}
-          <View style={styles.header}>
-            <Text style={styles.title}>Crear Cuenta</Text>
-            <Text style={styles.subtitle}>Únete a MediSpace</Text>
+          <View style={[styles.header, isKeyboardVisible && styles.headerCollapsed]}>
+            <Text style={[styles.title, isKeyboardVisible && styles.titleCollapsed]}>Crear Cuenta</Text>
+            {!isKeyboardVisible && <Text style={styles.subtitle}>Únete a MediSpace</Text>}
           </View>
 
           {/* Form */}
@@ -139,6 +156,8 @@ export default function RegisterScreen() {
                 value={birthDate || new Date()}
                 mode="date"
                 display="default"
+                themeVariant="light"
+                textColor={Colors.primary}
                 onChange={onDateChange}
                 maximumDate={new Date()}
               />
@@ -190,7 +209,9 @@ const styles = StyleSheet.create({
   scrollContent: { flexGrow: 1, paddingHorizontal: Spacing.lg, paddingTop: Spacing.xxl },
   backBtn: { position: 'absolute', top: Spacing.md, left: 0, padding: Spacing.sm, zIndex: 10 },
   header: { alignItems: 'center', marginBottom: Spacing.xl, marginTop: Spacing.lg },
+  headerCollapsed: { marginBottom: Spacing.sm, marginTop: Spacing.sm, alignItems: 'center' },
   title: { fontSize: FontSizes.xxl, fontWeight: '800', color: Colors.primary },
+  titleCollapsed: { fontSize: FontSizes.lg },
   subtitle: { fontSize: FontSizes.md, color: Colors.textSecondary, marginTop: Spacing.xs },
   form: { gap: Spacing.md },
   row: { flexDirection: 'row', gap: Spacing.md },
