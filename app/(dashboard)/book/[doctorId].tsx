@@ -14,7 +14,6 @@ import { useAuth } from '../../../hooks/useAuth';
 import { supabase } from '../../../lib/supabase';
 import { Colors, Spacing, FontSizes, BorderRadius, Shadows } from '../../../constants/theme';
 
-// Configurar calendario en español
 LocaleConfig.locales['es'] = {
   monthNames: ['Enero','Febrero','Marzo','Abril','Mayo','Junio','Julio','Agosto','Septiembre','Octubre','Noviembre','Diciembre'],
   monthNamesShort: ['Ene','Feb','Mar','Abr','May','Jun','Jul','Ago','Sep','Oct','Nov','Dic'],
@@ -36,192 +35,10 @@ export default function BookAppointmentScreen() {
   const [showVoucher, setShowVoucher] = useState(false);
   const [isGeneratingPdf, setIsGeneratingPdf] = useState(false);
 
-  // Card Form State
+  // Estados visuales de la tarjeta
   const [cardNumber, setCardNumber] = useState('');
   const [cardExpiry, setCardExpiry] = useState('');
   const [cardCvv, setCardCvv] = useState('');
-
-  // Fetch doctor profile
-  const { data: doctor } = useQuery({
-    queryKey: ['doctor-profile', doctorId],
-    queryFn: async () => {
-      const { data } = await supabase
-        .from('profiles')
-        .select('user_id, first_name, last_name, specialty, consultation_fee, avatar_url')
-        .eq('user_id', doctorId)
-        .single();
-      return data;
-    },
-    enabled: !!doctorId,
-  });
-
-  const fee = doctor?.consultation_fee || 0;
-  const amountToPay = paymentMode === 'half' ? fee / 2 : fee;
-  
-  // Fetch doctor reviews
-  const { data: reviews } = useQuery({
-    queryKey: ['doctor-reviews', doctorId],
-    queryFn: async () => {
-      const { data: ratings, error: ratingsError } = await supabase
-        .from('ratings')
-        .select('*')
-        .eq('doctor_id', doctorId)
-        .order('created_at', { ascending: false });
-      
-      if (ratingsError) throw ratingsError;
-      if (!ratings || ratings.length === 0) return [];
-      
-      // Get patient profiles for the names
-      const patientIds = Array.from(new Set(ratings.map(r => r.patient_id)));
-      const { data: profiles } = await supabase
-        .from('profiles')
-        .select('user_id, first_name, last_name, avatar_url')
-        .in('user_id', patientIds);
-        
-      return ratings.map(r => ({
-        ...r,
-        patient: profiles?.find(p => p.user_id === r.patient_id) || { first_name: 'Paciente', last_name: 'Verificado' }
-      }));
-    },
-    enabled: !!doctorId,
-  });
-
-  const avgRating = reviews?.length 
-    ? (reviews.reduce((acc, r) => acc + r.score, 0) / reviews.length).toFixed(1)
-    : '5.0';
-
-  // Create/Update Slot Lock Mutation
-  const lockMutation = useMutation({
-    mutationFn: async (slot: any) => {
-      if (!user || !selectedDate || !slot) return;
-      
-      // Delete existing locks for this user first
-      await supabase.from('slot_locks').delete().eq('locked_by', user.id);
-      
-      // Create new lock
-      const { error } = await supabase.from('slot_locks').insert({
-        doctor_id: doctorId,
-        appointment_date: selectedDate,
-        start_time: slot.start + ':00',
-        locked_by: user.id,
-        expires_at: new Date(Date.now() + 10 * 60000).toISOString(),
-      });
-      if (error) throw error;
-    },
-    onError: (err: any) => Toast.show({ type: 'error', text1: 'Slot ocupado o bloqueado', text2: 'Intenta con otro horario.' }),
-  });
-
-  // Fetch active locks for this doctor/date
-  const { data: activeLocks } = useQuery({
-    queryKey: ['slot-locks', doctorId, selectedDate],
-    queryFn: async () => {
-      const { data } = await supabase
-        .from('slot_locks')
-        .select('start_time, locked_by')
-        .eq('doctor_id', doctorId)
-        .eq('appointment_date', selectedDate)
-        .gt('expires_at', new Date().toISOString());
-      return data || [];
-    },
-    enabled: !!selectedDate,
-    refetchInterval: 5000, // Refresh every 5s to keep it accurate
-  });
-
-  // Fetch existing appointments for the doctor
-  const { data: existingAppointments } = useQuery({
-    queryKey: ['existing-appointments', doctorId, selectedDate],
-    queryFn: async () => {
-      const { data } = await supabase
-        .from('appointments')
-        .select('start_time, status')
-        .eq('doctor_id', doctorId)
-        .eq('appointment_date', selectedDate)
-        .in('status', ['scheduled', 'confirmed']);
-      return data || [];
-    },
-    enabled: !!selectedDate,
-  });
-
-  // NUEVO: Fetch de las citas del paciente para ese día
-  const { data: patientDayAppointments } = useQuery({
-    queryKey: ['patient-day-appointments', user?.id, selectedDate],
-    queryFn: async () => {
-      const { data, error } = await supabase
-        .from('appointments')
-        .select('doctor_id, start_time')
-        .eq('patient_id', user!.id)
-        .eq('appointment_date', selectedDate)
-        .in('status', ['scheduled', 'confirmed']); // Solo citas activas
-        
-      if (error) throw error;
-      return data || [];
-    },
-    enabled: !!user?.id && !!selectedDate,
-  });
-
-  // VALIDACIONES
-  const hasAppointmentWithSameDoctorToday = patientDayAppointments?.some(
-    apt => apt.doctor_id === doctorId
-  );
-
-  const isTimeSlotBookedByPatient = (timeString: string) => {
-    return patientDayAppointments?.some(
-      apt => apt.start_time.slice(0, 5) === timeString
-    );
-  };
-
-  // Fetch assignments
-  const dayOfWeek = selectedDate ? new Date(selectedDate + 'T12:00:00').getDay() : -1;
-  const { data: assignments } = useQuery({
-    queryKey: ['doctor-assignments', doctorId, dayOfWeek],
-    queryFn: async () => {
-      const { data } = await supabase
-        .from('doctor_assignments')
-        .select('*, offices(id, name, status, branches(id, name, status))')
-        .eq('doctor_id', doctorId)
-        .eq('day_of_week', dayOfWeek);
-      return data || [];
-    },
-    enabled: dayOfWeek >= 0,
-  });
-
-  // Generate slots
-  const slots = useMemo(() => {
-    if (!assignments?.length) return [];
-    const generatedSlots: { start: string; end: string; office: any; isMorning: boolean }[] = [];
-    for (const a of assignments) {
-      let [sh, sm] = a.start_time.split(':').map(Number);
-      const [eh, em] = a.end_time.split(':').map(Number);
-      while (sh < eh || (sh === eh && sm < em)) {
-        const start = `${String(sh).padStart(2, '0')}:${String(sm).padStart(2, '0')}`;
-        const isMorning = sh < 12;
-        let nextSm = sm + 30;
-        let nextSh = sh;
-        if (nextSm >= 60) { nextSh += 1; nextSm -= 60; }
-        const end = `${String(nextSh).padStart(2, '0')}:${String(nextSm).padStart(2, '0')}`;
-        
-        const isTaken = existingAppointments?.some(e => e.start_time.slice(0, 5) === start);
-        const isLocked = activeLocks?.some(l => l.start_time.slice(0, 5) === start && l.locked_by !== user?.id);
-        
-        const isOfficeActive = a.offices?.status === 'active';
-        const isBranchActive = a.offices?.branches?.status === 'active';
-
-        if (!isTaken && !isLocked && isOfficeActive && isBranchActive) {
-          generatedSlots.push({ start, end, office: a.offices, isMorning });
-        }
-        sm = nextSm; sh = nextSh;
-      }
-    }
-    return generatedSlots;
-  }, [assignments, existingAppointments, activeLocks, user?.id]);
-
-  const morningSlots = slots.filter(s => s.isMorning);
-  const afternoonSlots = slots.filter(s => !s.isMorning);
-
-  const handleSelectSlot = (slot: any) => {
-    setSelectedSlot(slot);
-    lockMutation.mutate(slot);
-  };
 
   const handleCardNumberChange = (text: string) => {
     let clean = text.replace(/\D/g, '');
@@ -238,14 +55,137 @@ export default function BookAppointmentScreen() {
     setCardExpiry(formatted);
   };
 
+  const { data: doctor } = useQuery({
+    queryKey: ['doctor-profile', doctorId],
+    queryFn: async () => {
+      const { data } = await supabase.from('profiles').select('user_id, first_name, last_name, specialty, consultation_fee, avatar_url').eq('user_id', doctorId).single();
+      return data;
+    },
+    enabled: !!doctorId,
+  });
+
+  const fee = doctor?.consultation_fee || 0;
+  const amountToPay = paymentMode === 'half' ? fee / 2 : fee;
+  
+  const { data: reviews } = useQuery({
+    queryKey: ['doctor-reviews', doctorId],
+    queryFn: async () => {
+      const { data: ratings, error } = await supabase.from('ratings').select('*').eq('doctor_id', doctorId).order('created_at', { ascending: false });
+      if (error) throw error;
+      if (!ratings || ratings.length === 0) return [];
+      
+      const patientIds = Array.from(new Set(ratings.map(r => r.patient_id)));
+      const { data: profiles } = await supabase.from('profiles').select('user_id, first_name, last_name, avatar_url').in('user_id', patientIds);
+        
+      return ratings.map(r => ({
+        ...r,
+        patient: profiles?.find(p => p.user_id === r.patient_id) || { first_name: 'Paciente', last_name: 'Verificado' }
+      }));
+    },
+    enabled: !!doctorId,
+  });
+
+  const avgRating = reviews?.length ? (reviews.reduce((acc, r) => acc + r.score, 0) / reviews.length).toFixed(1) : '5.0';
+
+  const lockMutation = useMutation({
+    mutationFn: async (slot: any) => {
+      if (!user || !selectedDate || !slot) return;
+      await supabase.from('slot_locks').delete().eq('locked_by', user.id);
+      const { error } = await supabase.from('slot_locks').insert({
+        doctor_id: doctorId,
+        appointment_date: selectedDate,
+        start_time: slot.start + ':00',
+        locked_by: user.id,
+        expires_at: new Date(Date.now() + 10 * 60000).toISOString(),
+      });
+      if (error) throw error;
+    },
+    onError: () => Toast.show({ type: 'error', text1: 'Slot ocupado o bloqueado', text2: 'Intenta con otro horario.' }),
+  });
+
+  const { data: activeLocks } = useQuery({
+    queryKey: ['slot-locks', doctorId, selectedDate],
+    queryFn: async () => {
+      const { data } = await supabase.from('slot_locks').select('start_time, locked_by').eq('doctor_id', doctorId).eq('appointment_date', selectedDate).gt('expires_at', new Date().toISOString());
+      return data || [];
+    },
+    enabled: !!selectedDate,
+    refetchInterval: 5000,
+  });
+
+  const { data: existingAppointments } = useQuery({
+    queryKey: ['existing-appointments', doctorId, selectedDate],
+    queryFn: async () => {
+      const { data } = await supabase.from('appointments').select('start_time, status').eq('doctor_id', doctorId).eq('appointment_date', selectedDate).in('status', ['scheduled', 'confirmed']);
+      return data || [];
+    },
+    enabled: !!selectedDate,
+  });
+
+  const { data: patientDayAppointments } = useQuery({
+    queryKey: ['patient-day-appointments', user?.id, selectedDate],
+    queryFn: async () => {
+      const { data, error } = await supabase.from('appointments').select('doctor_id, start_time').eq('patient_id', user!.id).eq('appointment_date', selectedDate).in('status', ['scheduled', 'confirmed']);
+      if (error) throw error;
+      return data || [];
+    },
+    enabled: !!user?.id && !!selectedDate,
+  });
+
+  const hasAppointmentWithSameDoctorToday = patientDayAppointments?.some(apt => apt.doctor_id === doctorId);
+  const isTimeSlotBookedByPatient = (timeString: string) => patientDayAppointments?.some(apt => apt.start_time.slice(0, 5) === timeString);
+
+  const dayOfWeek = selectedDate ? new Date(selectedDate + 'T12:00:00').getDay() : -1;
+  const { data: assignments } = useQuery({
+    queryKey: ['doctor-assignments', doctorId, dayOfWeek],
+    queryFn: async () => {
+      const { data } = await supabase.from('doctor_assignments').select('*, offices(id, name, status, branches(id, name, status))').eq('doctor_id', doctorId).eq('day_of_week', dayOfWeek);
+      return data || [];
+    },
+    enabled: dayOfWeek >= 0,
+  });
+
+  const slots = useMemo(() => {
+    if (!assignments?.length) return [];
+    const generatedSlots: { start: string; end: string; office: any; isMorning: boolean }[] = [];
+    for (const a of assignments) {
+      let [sh, sm] = a.start_time.split(':').map(Number);
+      const [eh, em] = a.end_time.split(':').map(Number);
+      while (sh < eh || (sh === eh && sm < em)) {
+        const start = `${String(sh).padStart(2, '0')}:${String(sm).padStart(2, '0')}`;
+        const isMorning = sh < 12;
+        let nextSm = sm + 30;
+        let nextSh = sh;
+        if (nextSm >= 60) { nextSh += 1; nextSm -= 60; }
+        const end = `${String(nextSh).padStart(2, '0')}:${String(nextSm).padStart(2, '0')}`;
+        
+        const isTaken = existingAppointments?.some(e => e.start_time.slice(0, 5) === start);
+        const isLocked = activeLocks?.some(l => l.start_time.slice(0, 5) === start && l.locked_by !== user?.id);
+        const isOfficeActive = a.offices?.status === 'active';
+        const isBranchActive = a.offices?.branches?.status === 'active';
+
+        if (!isTaken && !isLocked && isOfficeActive && isBranchActive) {
+          generatedSlots.push({ start, end, office: a.offices, isMorning });
+        }
+        sm = nextSm; sh = nextSh;
+      }
+    }
+    return generatedSlots;
+  }, [assignments, existingAppointments, activeLocks, user?.id]);
+
+  const morningSlots = slots.filter(s => s.isMorning);
+  const afternoonSlots = slots.filter(s => !s.isMorning);
+
   const bookMutation = useMutation({
     mutationFn: async () => {
       if (!selectedSlot || !selectedDate || !user) throw new Error('Faltan datos');
       
       if (paymentMethod === 'card') {
-        if (cardNumber.replace(/\s/g, '').length < 16) throw new Error('Ingresa un número de tarjeta válido');
-        if (cardExpiry.length < 5) throw new Error('Fecha de vencimiento incompleta');
-        if (cardCvv.length < 3) throw new Error('CVV incompleto');
+        if (cardNumber.length < 19 || cardExpiry.length < 5 || cardCvv.length < 3) {
+          throw new Error('Completa los datos de la tarjeta');
+        }
+        // Simulación visual de proceso bancario de 2 segundos
+        await new Promise(resolve => setTimeout(resolve, 2000));
       }
 
       const reference = `MS-${user.id.slice(0, 4).toUpperCase()}-${Date.now().toString().slice(-4)}`;
@@ -256,7 +196,7 @@ export default function BookAppointmentScreen() {
         appointment_date: selectedDate,
         start_time: selectedSlot.start + ':00',
         end_time: selectedSlot.end + ':00',
-        status: (paymentMethod === 'card' ? 'confirmed' : 'scheduled') as any, // Confirmed if paid by card
+        status: (paymentMethod === 'card' ? 'confirmed' : 'scheduled') as any,
         payment_amount: amountToPay,
         payment_type: paymentMode === 'half' ? 'deposit' : 'full',
         payment_method: paymentMethod,
@@ -265,11 +205,14 @@ export default function BookAppointmentScreen() {
       });
       
       if (error) throw error;
-      
-      // Cleanup the lock after booking
       await supabase.from('slot_locks').delete().eq('locked_by', user.id);
     },
     onSuccess: () => {
+      // ESTA ES LA MAGIA: Le decimos a la app que borre su memoria y vuelva a descargar las citas
+      queryClient.invalidateQueries({ queryKey: ['upcoming-appointments'] });
+      queryClient.invalidateQueries({ queryKey: ['appointments'] });
+      queryClient.invalidateQueries({ queryKey: ['patient-day-appointments'] });
+
       if (paymentMethod === 'card') {
         Toast.show({ type: 'success', text1: '¡Cita confirmada!', text2: 'Tu pago con tarjeta ha sido exitoso.' });
         router.push('/(dashboard)/home');
@@ -283,55 +226,7 @@ export default function BookAppointmentScreen() {
   const handleDownloadPDF = async () => {
     setIsGeneratingPdf(true);
     try {
-      const html = `
-        <html>
-          <head>
-            <style>
-              body { font-family: 'Helvetica', sans-serif; padding: 40px; color: #1e293b; }
-              .header { text-align: center; margin-bottom: 40px; }
-              .logo { font-size: 28px; font-weight: bold; color: #0ea5e9; }
-              .card { border: 1px solid #e2e8f0; border-radius: 20px; padding: 30px; background: #fff; }
-              .title { font-size: 20px; font-weight: bold; margin-bottom: 10px; text-align: center; }
-              .subtitle { font-size: 14px; color: #64748b; margin-bottom: 30px; text-align: center; }
-              .label { font-size: 11px; color: #94a3b8; text-transform: uppercase; margin-bottom: 3px; }
-              .value { font-size: 16px; font-weight: 600; margin-bottom: 15px; }
-              .amount-box { background: #f8fafc; padding: 20px; border-radius: 15px; text-align: center; margin: 20px 0; border: 1px solid #f1f5f9; }
-              .amount { font-size: 32px; font-weight: 800; color: #0f172a; }
-              .bank-info { background: #eff6ff; padding: 20px; border-radius: 15px; border: 1px solid #dbeafe; }
-              .info-title { font-size: 12px; font-weight: 800; color: #2563eb; margin-bottom: 10px; }
-              .footer { margin-top: 40px; font-size: 10px; color: #94a3b8; text-align: center; }
-            </style>
-          </head>
-          <body>
-            <div class="header">
-              <div class="logo">MediSpace</div>
-              <div style="font-size: 12px; color: #64748b;">EXPEDIENTE Y SALUD DIGITAL</div>
-            </div>
-            <div class="card">
-              <div class="title">Ficha de Pago ${paymentMethod.toUpperCase()}</div>
-              <div class="subtitle">Orden de pago generada correctamente</div>
-              <div class="label">Paciente:</div> <div class="value">${user?.email}</div>
-              <div class="label">Doctor(a):</div> <div class="value">Dr. ${doctor?.first_name} ${doctor?.last_name}</div>
-              <div class="label">Fecha de Cita:</div> <div class="value">${format(new Date(selectedDate + 'T12:00:00'), "EEEE, d 'de' MMMM, yyyy", { locale: es })}</div>
-              <div class="amount-box">
-                <div class="label">Monto a pagar</div>
-                <div class="amount">$${amountToPay.toFixed(2)} MXN</div>
-              </div>
-              <div class="bank-info">
-                <div class="info-title">DATOS PARA EL PAGO</div>
-                ${paymentMethod === 'spei' ? `
-                  <div class="label">Institución:</div><div class="value">BBVA México</div>
-                  <div class="label">CLABE:</div><div class="value">0123 4567 8901 2345 67</div>
-                  <div class="label">Referencia:</div><div class="value">MS-${user?.id.slice(0, 4).toUpperCase()}</div>
-                ` : `
-                  <div class="label">Identificador OXXO Pay:</div><div class="value">5432 1098 7654 3210</div>
-                  <div style="font-size: 11px; color: #64748b; margin-top: 10px;">Acude a un OXXO y dicta estos dígitos al cajero.</div>
-                `}
-              </div>
-            </div>
-          </body>
-        </html>
-      `;
+      const html = `<html><head><style>body { font-family: 'Helvetica', sans-serif; padding: 40px; color: #1e293b; } .header { text-align: center; margin-bottom: 40px; } .logo { font-size: 28px; font-weight: bold; color: #0ea5e9; } .card { border: 1px solid #e2e8f0; border-radius: 20px; padding: 30px; background: #fff; } .title { font-size: 20px; font-weight: bold; margin-bottom: 10px; text-align: center; } .subtitle { font-size: 14px; color: #64748b; margin-bottom: 30px; text-align: center; } .label { font-size: 11px; color: #94a3b8; text-transform: uppercase; margin-bottom: 3px; } .value { font-size: 16px; font-weight: 600; margin-bottom: 15px; } .amount-box { background: #f8fafc; padding: 20px; border-radius: 15px; text-align: center; margin: 20px 0; border: 1px solid #f1f5f9; } .amount { font-size: 32px; font-weight: 800; color: #0f172a; } .bank-info { background: #eff6ff; padding: 20px; border-radius: 15px; border: 1px solid #dbeafe; } .info-title { font-size: 12px; font-weight: 800; color: #2563eb; margin-bottom: 10px; }</style></head><body><div class="header"><div class="logo">MediSpace</div><div style="font-size: 12px; color: #64748b;">EXPEDIENTE Y SALUD DIGITAL</div></div><div class="card"><div class="title">Ficha de Pago ${paymentMethod.toUpperCase()}</div><div class="subtitle">Orden de pago generada correctamente</div><div class="label">Paciente:</div> <div class="value">${user?.email}</div><div class="label">Doctor(a):</div> <div class="value">Dr. ${doctor?.first_name} ${doctor?.last_name}</div><div class="label">Fecha de Cita:</div> <div class="value">${format(new Date(selectedDate + 'T12:00:00'), "EEEE, d 'de' MMMM, yyyy", { locale: es })}</div><div class="amount-box"><div class="label">Monto a pagar</div><div class="amount">$${amountToPay.toFixed(2)} MXN</div></div><div class="bank-info"><div class="info-title">DATOS PARA EL PAGO</div>${paymentMethod === 'spei' ? `<div class="label">Institución:</div><div class="value">BBVA México</div><div class="label">CLABE:</div><div class="value">0123 4567 8901 2345 67</div><div class="label">Referencia:</div><div class="value">MS-${user?.id.slice(0, 4).toUpperCase()}</div>` : `<div class="label">Identificador OXXO Pay:</div><div class="value">5432 1098 7654 3210</div><div style="font-size: 11px; color: #64748b; margin-top: 10px;">Acude a un OXXO y dicta estos dígitos al cajero.</div>`}</div></div></body></html>`;
       const { uri } = await Print.printToFileAsync({ html });
       await Sharing.shareAsync(uri);
     } catch (e) {
@@ -384,10 +279,7 @@ export default function BookAppointmentScreen() {
             <View style={styles.voucherActions}>
               <TouchableOpacity style={styles.downloadBtn} onPress={handleDownloadPDF} disabled={isGeneratingPdf}>
                 {isGeneratingPdf ? <ActivityIndicator color="white" /> : (
-                  <>
-                    <Ionicons name="download-outline" size={20} color="white" />
-                    <Text style={styles.downloadBtnText}>Descargar PDF</Text>
-                  </>
+                  <><Ionicons name="download-outline" size={20} color="white" /><Text style={styles.downloadBtnText}>Descargar PDF</Text></>
                 )}
               </TouchableOpacity>
               <TouchableOpacity style={styles.voucherBtn} onPress={() => router.replace('/(dashboard)/home')}>
@@ -409,14 +301,11 @@ export default function BookAppointmentScreen() {
             {doctor?.avatar_url ? (
               <Image source={{ uri: doctor.avatar_url }} style={styles.doctorAvatar} />
             ) : (
-              <View style={styles.doctorAvatarPlaceholder}>
-                <Ionicons name="person" size={20} color={Colors.textMuted} />
-              </View>
+              <View style={styles.doctorAvatarPlaceholder}><Ionicons name="person" size={20} color={Colors.textMuted} /></View>
             )}
             <View>
               <Text style={styles.headerSubtitle}>AGENDAR CITA</Text>
               <Text style={styles.headerTitle}>Dr. {doctor?.first_name} {doctor?.last_name}</Text>
-              
               <View style={styles.ratingSummary}>
                 <View style={styles.ratingRow}>
                   <Ionicons name="star" size={16} color="#fbbf24" />
@@ -445,9 +334,7 @@ export default function BookAppointmentScreen() {
                     <View>
                       <Text style={styles.reviewName}>{rev.patient?.first_name} {rev.patient?.last_name?.[0]}.</Text>
                       <View style={styles.reviewStars}>
-                        {[1, 2, 3, 4, 5].map(s => (
-                          <Ionicons key={s} name="star" size={10} color={s <= rev.score ? "#fbbf24" : Colors.border} />
-                        ))}
+                        {[1, 2, 3, 4, 5].map(s => <Ionicons key={s} name="star" size={10} color={s <= rev.score ? "#fbbf24" : Colors.border} />)}
                       </View>
                     </View>
                   </View>
@@ -473,9 +360,7 @@ export default function BookAppointmentScreen() {
             {hasAppointmentWithSameDoctorToday ? (
               <View style={styles.errorContainer}>
                 <Ionicons name="alert-circle" size={24} color={Colors.error} />
-                <Text style={styles.errorText}>
-                  Ya tienes una cita programada con este especialista para este día.
-                </Text>
+                <Text style={styles.errorText}>Ya tienes una cita programada con este especialista para este día.</Text>
               </View>
             ) : slots.length === 0 ? (
               <View style={styles.emptyState}>
@@ -493,26 +378,14 @@ export default function BookAppointmentScreen() {
                         return (
                           <TouchableOpacity 
                             key={i} 
-                            style={[
-                              styles.slotBtn, 
-                              selectedSlot?.start === slot.start && styles.slotSelected,
-                              isBookedByMe && styles.timeBtnDisabled
-                            ]} 
-                            onPress={() => setSelectedSlot(slot)}
+                            style={[styles.slotBtn, selectedSlot?.start === slot.start && styles.slotSelected, isBookedByMe && styles.timeBtnDisabled]} 
+                            onPress={() => { setSelectedSlot(slot); lockMutation.mutate(slot); }}
                             disabled={isBookedByMe}
                           >
-                            <Text style={[
-                              styles.slotText, 
-                              selectedSlot?.start === slot.start && styles.slotTextSelected,
-                              isBookedByMe && styles.timeTextDisabled
-                            ]}>
-                              {formatTime12h(slot.start)}
-                            </Text>
+                            <Text style={[styles.slotText, selectedSlot?.start === slot.start && styles.slotTextSelected, isBookedByMe && styles.timeTextDisabled]}>{formatTime12h(slot.start)}</Text>
                             <View style={styles.slotLocationRow}>
                               <Ionicons name="business-outline" size={10} color={Colors.textMuted} />
-                              <Text style={styles.slotLocationText} numberOfLines={1}>
-                                {slot.office?.branches?.name} - {slot.office?.name}
-                              </Text>
+                              <Text style={styles.slotLocationText} numberOfLines={1}>{slot.office?.branches?.name} - {slot.office?.name}</Text>
                             </View>
                             {isBookedByMe && <Text style={styles.bookedWarning}>Tu horario choca</Text>}
                           </TouchableOpacity>
@@ -530,26 +403,14 @@ export default function BookAppointmentScreen() {
                         return (
                           <TouchableOpacity 
                             key={i} 
-                            style={[
-                              styles.slotBtn, 
-                              selectedSlot?.start === slot.start && styles.slotSelected,
-                              isBookedByMe && styles.timeBtnDisabled
-                            ]} 
-                            onPress={() => setSelectedSlot(slot)}
+                            style={[styles.slotBtn, selectedSlot?.start === slot.start && styles.slotSelected, isBookedByMe && styles.timeBtnDisabled]} 
+                            onPress={() => { setSelectedSlot(slot); lockMutation.mutate(slot); }}
                             disabled={isBookedByMe}
                           >
-                            <Text style={[
-                              styles.slotText, 
-                              selectedSlot?.start === slot.start && styles.slotTextSelected,
-                              isBookedByMe && styles.timeTextDisabled
-                            ]}>
-                              {formatTime12h(slot.start)}
-                            </Text>
+                            <Text style={[styles.slotText, selectedSlot?.start === slot.start && styles.slotTextSelected, isBookedByMe && styles.timeTextDisabled]}>{formatTime12h(slot.start)}</Text>
                             <View style={styles.slotLocationRow}>
                               <Ionicons name="business-outline" size={10} color={Colors.textMuted} />
-                              <Text style={styles.slotLocationText} numberOfLines={1}>
-                                {slot.office?.branches?.name} - {slot.office?.name}
-                              </Text>
+                              <Text style={styles.slotLocationText} numberOfLines={1}>{slot.office?.branches?.name} - {slot.office?.name}</Text>
                             </View>
                             {isBookedByMe && <Text style={styles.bookedWarning}>Tu horario choca</Text>}
                           </TouchableOpacity>
@@ -596,23 +457,53 @@ export default function BookAppointmentScreen() {
                 {paymentMethod === 'card' && (
                   <View style={styles.cardForm}>
                     <Text style={styles.cardFormTitle}>Datos de tu Tarjeta</Text>
+                    
                     <View style={styles.inputContainer}>
                       <Text style={styles.inputLabel}>Número de Tarjeta</Text>
                       <View style={styles.inputWrapper}>
                         <Ionicons name="card-outline" size={20} color={Colors.textMuted} style={styles.inputIcon} />
-                        <TextInput style={styles.input} placeholder="0000 0000 0000 0000" keyboardType="numeric" maxLength={19} value={cardNumber} onChangeText={handleCardNumberChange} />
+                        <TextInput
+                          style={styles.input}
+                          placeholder="0000 0000 0000 0000"
+                          keyboardType="numeric"
+                          value={cardNumber}
+                          onChangeText={handleCardNumberChange}
+                          maxLength={19}
+                        />
                       </View>
                     </View>
+
                     <View style={styles.inputRow}>
                       <View style={[styles.inputContainer, { flex: 1 }]}>
-                        <Text style={styles.inputLabel}>Vence (MM/YY)</Text>
-                        <TextInput style={styles.input} placeholder="MM/YY" keyboardType="numeric" maxLength={5} value={cardExpiry} onChangeText={handleExpiryChange} />
+                        <Text style={styles.inputLabel}>Vencimiento</Text>
+                        <View style={styles.inputWrapper}>
+                          <TextInput 
+                            style={styles.input} 
+                            placeholder="MM/YY" 
+                            keyboardType="numeric" 
+                            value={cardExpiry} 
+                            onChangeText={handleExpiryChange} 
+                            maxLength={5} 
+                          />
+                        </View>
                       </View>
+                      
                       <View style={[styles.inputContainer, { flex: 1 }]}>
-                        <Text style={styles.inputLabel}>CVV</Text>
-                        <TextInput style={styles.input} placeholder="123" keyboardType="numeric" maxLength={3} secureTextEntry value={cardCvv} onChangeText={setCardCvv} />
+                        <Text style={styles.inputLabel}>CVC</Text>
+                        <View style={styles.inputWrapper}>
+                          <TextInput 
+                            style={styles.input} 
+                            placeholder="123" 
+                            keyboardType="numeric" 
+                            value={cardCvv} 
+                            onChangeText={(text) => setCardCvv(text.replace(/\D/g, ''))} 
+                            maxLength={4} 
+                            secureTextEntry 
+                          />
+                        </View>
                       </View>
                     </View>
+
                   </View>
                 )}
               </View>
@@ -687,7 +578,6 @@ const styles = StyleSheet.create({
   downloadBtnText: { color: 'white', fontWeight: '800', fontSize: 16 },
   voucherBtn: { backgroundColor: Colors.primary, paddingVertical: 16, borderRadius: BorderRadius.full, alignItems: 'center' },
   voucherBtnText: { color: 'white', fontWeight: '800', fontSize: 16 },
-  
   cardForm: { backgroundColor: '#ffffff', padding: 16, borderRadius: 16, borderWidth: 1, borderColor: '#eef2f6', marginTop: 10 },
   cardFormTitle: { fontSize: 10, fontWeight: '900', color: Colors.secondary, marginBottom: 16, letterSpacing: 1.5, textTransform: 'uppercase' },
   inputContainer: { marginBottom: 16 },
@@ -696,12 +586,10 @@ const styles = StyleSheet.create({
   inputIcon: { marginRight: 8 },
   input: { flex: 1, height: 44, fontSize: 14, fontWeight: '700', color: Colors.primary },
   inputRow: { flexDirection: 'row', gap: 12 },
-  
   ratingSummary: { marginTop: 8 },
   ratingRow: { flexDirection: 'row', alignItems: 'center', gap: 6 },
   avgRatingText: { fontSize: 14, fontWeight: '800', color: Colors.primary },
   totalReviewsText: { fontSize: 12, color: Colors.textMuted, fontWeight: '600' },
-  
   reviewsListSection: { marginBottom: 24 },
   sectionTitleSmall: { fontSize: 14, fontWeight: '800', color: Colors.primary, marginBottom: 12, textTransform: 'uppercase', letterSpacing: 1 },
   reviewsScroll: { paddingRight: 20, gap: 12 },
@@ -714,8 +602,6 @@ const styles = StyleSheet.create({
   reviewStars: { flexDirection: 'row', gap: 2 },
   reviewComment: { fontSize: 12, color: Colors.textSecondary, lineHeight: 18, marginBottom: 8, height: 54 },
   reviewDate: { fontSize: 10, color: Colors.textMuted, fontWeight: '600' },
-
-  // Estilos Nuevos para Validaciones
   timeBtnDisabled: { backgroundColor: '#f1f5f9', borderColor: '#e2e8f0', opacity: 0.6 },
   timeTextDisabled: { color: '#94a3b8', textDecorationLine: 'line-through' },
   bookedWarning: { fontSize: 9, color: '#ef4444', fontWeight: '800', marginTop: 2 },

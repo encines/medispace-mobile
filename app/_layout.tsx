@@ -10,13 +10,11 @@ import NotificationHandler from '../components/notifications/NotificationHandler
 
 const queryClient = new QueryClient();
 
-// Protección de rutas: redirige según estado de autenticación
 function AuthGate({ children }: { children: React.ReactNode }) {
   const { user, loading } = useAuth();
   const segments = useSegments();
   const router = useRouter();
 
-  // Call notifications registration when logged in
   useNotifications();
 
   useEffect(() => {
