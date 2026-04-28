@@ -242,7 +242,7 @@ export default function PatientRecordScreen() {
     refetchRecords();
   };
 
-  const handleDownloadPDF = async () => {
+  const handleDownloadPDF = async (record: any) => {
     try {
       const html = `
         <html>
@@ -250,37 +250,46 @@ export default function PatientRecordScreen() {
             <style>
               body { font-family: 'Helvetica', sans-serif; padding: 40px; color: #1e293b; }
               .header { border-bottom: 2px solid #0ea5e9; padding-bottom: 20px; margin-bottom: 30px; }
-              .title { font-size: 24px; font-weight: bold; color: #0ea5e9; }
-              .patient-info { margin-bottom: 30px; background: #f8fafc; padding: 20px; borderRadius: 10px; }
-              .record-card { border: 1px solid #e2e8f0; border-radius: 10px; padding: 20px; margin-bottom: 20px; }
-              .date { font-weight: bold; color: #64748b; font-size: 12px; }
-              .label { font-weight: bold; color: #1e293b; margin-top: 10px; display: block; }
-              .value { color: #475569; margin-bottom: 10px; }
+              .title { font-size: 22px; font-weight: bold; color: #0ea5e9; }
+              .patient-info { margin-bottom: 25px; background: #f8fafc; padding: 15px; border-radius: 10px; }
+              .record-card { border: 1px solid #e2e8f0; border-radius: 10px; padding: 20px; }
+              .date { font-weight: bold; color: #64748b; font-size: 14px; margin-bottom: 15px; }
+              .label { font-weight: bold; color: #1e293b; margin-top: 15px; display: block; font-size: 12px; text-transform: uppercase; }
+              .value { color: #475569; margin-bottom: 10px; font-size: 14px; line-height: 1.5; }
+              .vitals { display: flex; flex-direction: row; flex-wrap: wrap; margin-top: 10px; gap: 20px; }
             </style>
           </head>
           <body>
             <div class="header">
-              <div class="title">Resumen de Expediente Clínico</div>
+              <div class="title">Nota de Evolución Médica</div>
               <p>MediSpace - Salud Digital</p>
             </div>
             <div class="patient-info">
               <div class="label">Paciente:</div>
               <div class="value">${patient?.first_name} ${patient?.last_name}</div>
-              <div class="label">ID:</div>
-              <div class="value">${patient?.user_id}</div>
             </div>
-            ${records?.map((r: any) => `
-              <div class="record-card">
-                <div class="date">${format(new Date(r.created_at), "dd/MM/yyyy")}</div>
-                <div class="label">Motivo de Consulta:</div>
-                <div class="value">${r.reason}</div>
-                <div class="label">Diagnóstico:</div>
-                <div class="value">${r.diagnosis}</div>
-                <div class="label">Tratamiento:</div>
-                <div class="value">${r.treatment}</div>
-                ${r.prescription ? `<div class="label">Receta:</div><div class="value">${r.prescription}</div>` : ''}
+            
+            <div class="record-card">
+              <div class="date">Fecha de consulta: ${format(new Date(record.created_at), "dd/MM/yyyy")}</div>
+              
+              <div class="label">Motivo de Consulta:</div>
+              <div class="value">${record.reason}</div>
+              
+              <div class="label">Signos Vitales:</div>
+              <div class="vitals">
+                 <div><b>TA:</b> ${record.blood_pressure}</div>
+                 <div><b>FC:</b> ${record.heart_rate} bpm</div>
+                 <div><b>Temp:</b> ${record.temperature}°C</div>
+                 <div><b>Peso:</b> ${record.weight}kg</div>
               </div>
-            `).join('')}
+
+              <div class="label">Diagnóstico:</div>
+              <div class="value">${record.diagnosis}</div>
+              
+              <div class="label">Tratamiento / Plan:</div>
+              <div class="value">${record.treatment}</div>
+            </div>
+            <p style="margin-top: 50px; font-size: 10px; color: #94a3b8; text-align: center;">Este documento es un resumen clínico generado por MediSpace.</p>
           </body>
         </html>
       `;
@@ -378,16 +387,10 @@ export default function PatientRecordScreen() {
           <View style={styles.tabContent}>
             <Section title="Ficha de Identificación">
               <InfoRow label="Nombre Completo" value={`${patient?.first_name} ${patient?.last_name}`} />
-              <InfoRow label="CURP" value={patient?.curp || 'No registrado'} highlight={!patient?.curp} />
               <InfoRow label="Fecha de Nacimiento" value={patient?.date_of_birth || 'No registrada'} />
               <InfoRow label="Sexo" value={patient?.gender === 'male' ? 'Masculino' : 'Femenino'} />
-              <InfoRow label="Ocupación" value={patient?.occupation || 'No registrada'} />
-              <InfoRow label="Estado Civil" value={patient?.marital_status || 'No registrado'} />
-              <InfoRow label="Religión" value={patient?.religion || 'No registrada'} />
               <InfoRow label="Domicilio" value={patient?.address || 'No registrado'} />
               <InfoRow label="Teléfono" value={patient?.phone || 'No registrado'} />
-              <InfoRow label="Etnia / Grupo" value={patient?.ethnic_group || 'No registrado'} />
-              <InfoRow label="Discapacidad" value={patient?.disability || 'Ninguna registrada'} />
               <InfoRow label="Contacto de Emergencia" value={patient?.emergency_contact_name || 'No registrado'} />
               <InfoRow label="Tel. Emergencia" value={patient?.emergency_contact_phone || 'No registrado'} />
             </Section>
@@ -440,18 +443,18 @@ export default function PatientRecordScreen() {
                   <Text style={styles.addNoteText}>Nueva Nota de Evolución</Text>
                 </TouchableOpacity>
               )}
-              
-              <TouchableOpacity style={styles.downloadBtn} onPress={handleDownloadPDF}>
-                <Ionicons name="download-outline" size={20} color="white" />
-                <Text style={styles.downloadBtnText}>Descargar Resumen PDF</Text>
-              </TouchableOpacity>
             </View>
 
             {records?.map((record: any) => (
               <View key={record.id} style={styles.recordCard}>
                 <View style={styles.recordHeader}>
                   <Text style={styles.recordDate}>{format(new Date(record.created_at), "dd 'de' MMMM, yyyy", { locale: es })}</Text>
-                  <View style={styles.badge}><Text style={styles.badgeText}>Consulta</Text></View>
+                  <View style={{ flexDirection: 'row', gap: 8, alignItems: 'center' }}>
+                    <TouchableOpacity onPress={() => handleDownloadPDF(record)} style={styles.recordDownloadBtn}>
+                      <Ionicons name="download-outline" size={18} color={Colors.secondary} />
+                    </TouchableOpacity>
+                    <View style={styles.badge}><Text style={styles.badgeText}>Consulta</Text></View>
+                  </View>
                 </View>
                 
                 <Text style={styles.recordReasonLabel}>Padecimiento Actual / Motivo:</Text>
@@ -731,6 +734,7 @@ const styles = StyleSheet.create({
   separator: { height: 1, backgroundColor: '#f1f5f9', marginVertical: 12 },
   recordSectionTitle: { fontSize: 12, fontWeight: '800', color: '#1e293b', marginBottom: 4 },
   recordContent: { fontSize: 14, color: '#444', lineHeight: 20, marginBottom: 12 },
+  recordDownloadBtn: { padding: 6, backgroundColor: '#f1f5f9', borderRadius: 8 },
   emptyState: { alignItems: 'center', marginTop: 40 },
   emptyText: { color: '#64748b', marginTop: 10, fontSize: 14 },
 

@@ -74,8 +74,11 @@ export default function HomeScreen() {
                 size={14} color="white" 
               />
               <Text style={styles.roleTagText}>
-                {primaryRole.toUpperCase()}
-              </Text>
+  {primaryRole === 'admin' ? 'ADMINISTRADOR' 
+   : primaryRole === 'doctor' ? 'DOCTOR' 
+   : primaryRole === 'receptionist' ? 'RECEPCIONISTA' 
+   : 'PACIENTE'}
+</Text>
             </View>
             {primaryRole === 'patient' && (
               <TouchableOpacity style={styles.heroBookBtn} onPress={() => router.push('/(dashboard)/catalog')}>

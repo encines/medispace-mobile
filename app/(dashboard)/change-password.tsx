@@ -38,7 +38,7 @@ export default function ChangePasswordScreen() {
       if (error) throw error;
 
       Alert.alert('Éxito', 'Tu contraseña ha sido actualizada');
-      router.back();
+      router.replace('/(dashboard)/profile');
     } catch (error: any) {
       Alert.alert('Error', error.message || 'No se pudo actualizar la contraseña');
     } finally {
@@ -53,7 +53,7 @@ export default function ChangePasswordScreen() {
         style={{ flex: 1 }}
       >
         <View style={styles.header}>
-          <TouchableOpacity onPress={() => router.back()} style={styles.backBtn}>
+          <TouchableOpacity onPress={() => router.replace('/(dashboard)/profile')} style={styles.backBtn}>
             <Ionicons name="arrow-back" size={24} color={Colors.primary} />
           </TouchableOpacity>
           <Text style={styles.headerTitle}>Cambiar Contraseña</Text>
