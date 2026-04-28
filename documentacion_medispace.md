@@ -75,3 +75,6 @@ La aplicación adapta su interfaz según el rol del usuario autenticado:
 
 "La base de datos está normalizada en PostgreSQL. Utilizamos un modelo relacional que separa la identidad del usuario (Auth) de su información clínica (Profiles). Implementamos un sistema de asignación de médicos por consultorio y día de la semana, además de un mecanismo de bloqueo de slots para prevenir duplicidad de citas."
 
+Para esta primera etapa del proyecto, implementamos una arquitectura de Tabla Plana (Single Table) en Supabase. Tomamos esta decisión de forma estratégica para acelerar el desarrollo del MVP (Producto Mínimo Viable) y reducir la latencia de las consultas en la red móvil. Sin embargo, como pueden ver en nuestro diagrama de arquitectura planeada (DrawSQL), ya tenemos diseñado el modelo de Herencia de Tablas, el cual será nuestra siguiente fase de migración para escalar el sistema a miles de usuarios sin perder integridad.
+
+Porque en una startup o proyecto ágil, es vital validar la funcionalidad primero. Una estructura demasiado rígida al principio puede frenar cambios necesarios en la lógica de negocio. Ahora que la lógica es sólida, la migración a la arquitectura final es un paso natural.

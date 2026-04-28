@@ -88,12 +88,10 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   };
 
   useEffect(() => {
-    // 1. Initial manual check
     const checkSession = async () => {
       try {
         const { data: { session: initialSession }, error } = await supabase.auth.getSession();
         if (error) {
-          // Si hay error recuperando sesión inicial, limpiamos
           console.log('Session recovery error:', error.message);
           clearAuth();
         } else if (initialSession) {
@@ -110,7 +108,6 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
     checkSession();
 
-    // 2. Continuous listener
     const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, currentSession) => {
       console.log('Auth Event:', event);
 
@@ -120,7 +117,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         if (currentSession?.user) {
           await fetchUserData(currentSession.user.id);
         }
-      } else if (event === 'SIGNED_OUT' || event === 'TOKEN_REFRESH_FAILED') {
+      } else if (event === 'SIGNED_OUT') {
         clearAuth();
       } else if (currentSession) {
         // Otros eventos con sesión activa
