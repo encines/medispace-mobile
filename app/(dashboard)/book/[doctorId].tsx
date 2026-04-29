@@ -1,4 +1,4 @@
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useEffect } from 'react';
 import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Alert, ActivityIndicator, TextInput, Image } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useLocalSearchParams, useRouter } from 'expo-router';
@@ -40,6 +40,13 @@ export default function BookAppointmentScreen() {
   const [cardExpiry, setCardExpiry] = useState('');
   const [cardCvv, setCardCvv] = useState('');
 
+  // REINICIAR VISTA AL CAMBIAR DE DOCTOR
+  useEffect(() => {
+    setShowVoucher(false);
+    setSelectedSlot(null);
+    setSelectedDate('');
+  }, [doctorId]);
+
   const handleCardNumberChange = (text: string) => {
     let clean = text.replace(/\D/g, '');
     if (clean.length > 16) clean = clean.slice(0, 16);
@@ -58,8 +65,18 @@ export default function BookAppointmentScreen() {
   const { data: doctor } = useQuery({
     queryKey: ['doctor-profile', doctorId],
     queryFn: async () => {
-      const { data } = await supabase.from('profiles').select('user_id, first_name, last_name, specialty, consultation_fee, avatar_url').eq('user_id', doctorId).single();
-      return data;
+      const { data } = await supabase.from('profiles').select('id, first_name, last_name, avatar_url, doctor_details(specialty, consultation_fee)').eq('id', doctorId).single();
+      if (!data) return null;
+      const details = Array.isArray(data.doctor_details) ? data.doctor_details[0] : data.doctor_details;
+
+      return {
+        user_id: data.id,
+        first_name: data.first_name,
+        last_name: data.last_name,
+        avatar_url: data.avatar_url,
+        specialty: details?.specialty,
+        consultation_fee: details?.consultation_fee
+      };
     },
     enabled: !!doctorId,
   });
@@ -75,7 +92,8 @@ export default function BookAppointmentScreen() {
       if (!ratings || ratings.length === 0) return [];
       
       const patientIds = Array.from(new Set(ratings.map(r => r.patient_id)));
-      const { data: profiles } = await supabase.from('profiles').select('user_id, first_name, last_name, avatar_url').in('user_id', patientIds);
+      const { data: profilesResult } = await supabase.from('profiles').select('id, first_name, last_name, avatar_url').in('id', patientIds);
+      const profiles = profilesResult?.map(u => ({ user_id: u.id, first_name: u.first_name, last_name: u.last_name, avatar_url: u.avatar_url })) || [];
         
       return ratings.map(r => ({
         ...r,
@@ -93,20 +111,32 @@ export default function BookAppointmentScreen() {
       await supabase.from('slot_locks').delete().eq('locked_by', user.id);
       const { error } = await supabase.from('slot_locks').insert({
         doctor_id: doctorId,
-        appointment_date: selectedDate,
-        start_time: slot.start + ':00',
+        start_time: `${selectedDate}T${slot.start}:00`,
         locked_by: user.id,
         expires_at: new Date(Date.now() + 10 * 60000).toISOString(),
       });
       if (error) throw error;
     },
-    onError: () => Toast.show({ type: 'error', text1: 'Slot ocupado o bloqueado', text2: 'Intenta con otro horario.' }),
+    onError: (err: any) => {
+      console.error('Lock error:', err);
+      Toast.show({ 
+        type: 'error', 
+        text1: 'Error al apartar horario', 
+        text2: err.message || 'Intenta con otro horario.' 
+      });
+    },
   });
 
   const { data: activeLocks } = useQuery({
     queryKey: ['slot-locks', doctorId, selectedDate],
     queryFn: async () => {
-      const { data } = await supabase.from('slot_locks').select('start_time, locked_by').eq('doctor_id', doctorId).eq('appointment_date', selectedDate).gt('expires_at', new Date().toISOString());
+      const { data } = await supabase
+        .from('slot_locks')
+        .select('start_time, locked_by')
+        .eq('doctor_id', doctorId)
+        .gte('start_time', `${selectedDate}T00:00:00`)
+        .lte('start_time', `${selectedDate}T23:59:59`)
+        .gt('expires_at', new Date().toISOString());
       return data || [];
     },
     enabled: !!selectedDate,
@@ -116,7 +146,13 @@ export default function BookAppointmentScreen() {
   const { data: existingAppointments } = useQuery({
     queryKey: ['existing-appointments', doctorId, selectedDate],
     queryFn: async () => {
-      const { data } = await supabase.from('appointments').select('start_time, status').eq('doctor_id', doctorId).eq('appointment_date', selectedDate).in('status', ['scheduled', 'confirmed']);
+      const { data } = await supabase
+        .from('appointments')
+        .select('start_time, status')
+        .eq('doctor_id', doctorId)
+        .gte('start_time', `${selectedDate}T00:00:00`)
+        .lte('start_time', `${selectedDate}T23:59:59`)
+        .in('status', ['scheduled', 'confirmed']);
       return data || [];
     },
     enabled: !!selectedDate,
@@ -125,7 +161,13 @@ export default function BookAppointmentScreen() {
   const { data: patientDayAppointments } = useQuery({
     queryKey: ['patient-day-appointments', user?.id, selectedDate],
     queryFn: async () => {
-      const { data, error } = await supabase.from('appointments').select('doctor_id, start_time').eq('patient_id', user!.id).eq('appointment_date', selectedDate).in('status', ['scheduled', 'confirmed']);
+      const { data, error } = await supabase
+        .from('appointments')
+        .select('doctor_id, start_time')
+        .eq('patient_id', user!.id)
+        .gte('start_time', `${selectedDate}T00:00:00`)
+        .lte('start_time', `${selectedDate}T23:59:59`)
+        .in('status', ['scheduled', 'confirmed']);
       if (error) throw error;
       return data || [];
     },
@@ -193,15 +235,13 @@ export default function BookAppointmentScreen() {
         patient_id: user.id,
         doctor_id: doctorId,
         office_id: selectedSlot.office.id,
-        appointment_date: selectedDate,
-        start_time: selectedSlot.start + ':00',
-        end_time: selectedSlot.end + ':00',
+        start_time: `${selectedDate}T${selectedSlot.start}:00`,
         status: (paymentMethod === 'card' ? 'confirmed' : 'scheduled') as any,
-        payment_amount: amountToPay,
-        payment_type: paymentMode === 'half' ? 'deposit' : 'full',
+        total_price: fee,
+        amount_paid: amountToPay,
         payment_method: paymentMethod,
-        payment_reference: reference,
-        notes: `${paymentMode === 'half' ? '[ANTICIPO 50%]' : '[PAGO TOTAL]'} - Ref: ${reference}`,
+        transfer_reference: reference,
+        expires_at: new Date(Date.now() + 24 * 3600000).toISOString(), // 24h
       });
       
       if (error) throw error;

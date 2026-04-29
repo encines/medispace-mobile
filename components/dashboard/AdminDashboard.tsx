@@ -23,6 +23,13 @@ export default function AdminDashboard() {
           <Text style={styles.statLab}>Médicos</Text>
         </View>
         <View style={styles.statCard}>
+          <LinearGradient colors={['#fff7ed', '#ffedd5']} style={styles.statIconGradient}>
+            <Ionicons name="people" size={20} color="#ea580c" />
+          </LinearGradient>
+          <Text style={styles.statVal}>{adminStatsQuery.data?.receptionists || 0}</Text>
+          <Text style={styles.statLab}>Recep.</Text>
+        </View>
+        <View style={styles.statCard}>
           <LinearGradient colors={['#f0fdf4', '#dcfce7']} style={styles.statIconGradient}>
             <Ionicons name="business" size={20} color="#16a34a" />
           </LinearGradient>

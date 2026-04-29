@@ -35,14 +35,25 @@ export default function MedicalRecordsScreen() {
       const patientIds = Array.from(new Set(appointmentData.map(a => a.patient_id)));
 
       // Then fetch profiles for those patient IDs
-      const { data: profileData, error: profileError } = await supabase
+      const { data: profilesResult, error: profileError } = await supabase
         .from('profiles')
-        .select('*')
-        .in('user_id', patientIds)
+        .select('id, first_name, last_name, avatar_url, patient_details(blood_type, gender)')
+        .in('id', patientIds)
         .order('first_name');
 
       if (profileError) throw profileError;
-      return profileData || [];
+      
+      return profilesResult?.map((u: any) => {
+        const details = Array.isArray(u.patient_details) ? u.patient_details[0] : u.patient_details;
+        return {
+          user_id: u.id,
+          first_name: u.first_name,
+          last_name: u.last_name,
+          avatar_url: u.avatar_url,
+          blood_type: details?.blood_type,
+          gender: details?.gender
+        };
+      }) || [];
     },
     enabled: !!user?.id,
   });
@@ -89,7 +100,7 @@ export default function MedicalRecordsScreen() {
         <View style={styles.badge}>
           <Text style={styles.badgeText}>{item.blood_type || 'RH'}</Text>
         </View>
-        <Text style={styles.genderText}>{item.gender === 'male' ? 'Hombre' : 'Mujer'}</Text>
+        <Text style={styles.genderText}>{item.gender === 'male' ? 'Masculino' : 'Femenino'}</Text>
       </View>
       <TouchableOpacity 
         style={styles.viewBtn}

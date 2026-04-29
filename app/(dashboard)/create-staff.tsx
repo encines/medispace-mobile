@@ -22,6 +22,7 @@ export default function CreateStaffScreen() {
     password: '',
     firstName: '',
     lastName: '',
+    phone: '',
     specialty: specialties[0],
     license: '',
     fee: '',
@@ -49,6 +50,8 @@ export default function CreateStaffScreen() {
           data: {
             first_name: formData.firstName,
             last_name: formData.lastName,
+            phone: formData.phone,
+            role: role,
           }
         }
       });
@@ -61,25 +64,33 @@ export default function CreateStaffScreen() {
       // Esperar un momento para que el trigger de Supabase cree el perfil inicial
       await new Promise(r => setTimeout(r, 1500));
 
-      // 2. Actualizar Rol (usando cliente primario con sesión del admin)
-      const { error: roleError } = await supabase
-        .from('user_roles')
-        .update({ role: role })
-        .eq('user_id', newUserId);
+      // 2. Crear/Actualizar Perfil (usando upsert por si el trigger falla)
+      const { error: profileError } = await supabase
+        .from('profiles')
+        .upsert({ 
+          id: newUserId,
+          role: role,
+          first_name: formData.firstName,
+          last_name: formData.lastName,
+          email: formData.email,
+          phone: formData.phone,
+          is_active: true
+        });
       
-      if (roleError) throw roleError;
+      if (profileError) throw profileError;
 
-      // 3. Actualizar Datos Médicos si es Doctor
+      // 3. Crear/Actualizar Datos Médicos si es Doctor
       if (role === 'doctor') {
+        const cleanFee = parseFloat(formData.fee.toString()) || 0;
+        
         const { error: profileError } = await supabase
-          .from('profiles')
-          .update({
+          .from('doctor_details')
+          .upsert({
+            user_id: newUserId,
             specialty: formData.specialty,
             medical_license: formData.license,
-            consultation_fee: parseFloat(formData.fee),
-            is_active: true,
-          })
-          .eq('user_id', newUserId);
+            consultation_fee: cleanFee,
+          });
         
         if (profileError) throw profileError;
       }
@@ -158,6 +169,7 @@ export default function CreateStaffScreen() {
                 {renderInput('Apellidos', formData.lastName, (t) => setFormData({...formData, lastName: t}), 'person-outline', 'Pérez')}
               </View>
             </View>
+            {renderInput('Número de Celular', formData.phone, (t) => setFormData({...formData, phone: t}), 'call-outline', '5512345678', false, 'phone-pad')}
           </View>
 
           {role === 'doctor' && (

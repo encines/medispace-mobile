@@ -15,23 +15,22 @@ export default function BentoUserManagementScreen() {
   const { data: users, isLoading, refetch } = useQuery({
     queryKey: ['admin-staff-users-bento'],
     queryFn: async () => {
-      const { data: profiles, error: pError } = await supabase
+      const { data: profilesResult, error: pError } = await supabase
         .from('profiles')
-        .select('*')
+        .select('id, first_name, last_name, phone, avatar_url, is_active, role')
         .order('first_name');
       
       if (pError) throw pError;
-      
-      const { data: allRoles, error: rError } = await supabase
-        .from('user_roles')
-        .select('*');
-      
-      if (rError) throw rError;
 
-      return profiles
-        .map(p => ({
-          ...p,
-          roles: allRoles?.filter(r => r.user_id === p.user_id).map(r => r.role) || [],
+      return (profilesResult || [])
+        .map(u => ({
+          user_id: u.id,
+          first_name: u.first_name,
+          last_name: u.last_name,
+          phone: u.phone,
+          avatar_url: u.avatar_url,
+          is_active: u.is_active,
+          roles: [u.role]
         }))
         .filter(u => u.roles.some((r: any) => r !== 'patient'));
     },
@@ -41,8 +40,8 @@ export default function BentoUserManagementScreen() {
     mutationFn: async ({ userId, currentStatus }: { userId: string; currentStatus: boolean }) => {
       const { error } = await supabase
         .from('profiles')
-        .update({ is_active: !currentStatus } as any)
-        .eq('user_id', userId);
+        .update({ is_active: !currentStatus })
+        .eq('id', userId);
       if (error) throw error;
     },
     onSuccess: () => {

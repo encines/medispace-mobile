@@ -20,14 +20,23 @@ function AuthGate({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     if (loading) return;
 
-    const inAuthGroup = segments[0] === '(dashboard)';
+    const rootSegment = segments[0];
+    const inAuthGroup = segments.includes('(dashboard)');
+    const isPublicPage = !rootSegment || ['login', 'register', 'forgot-password', 'index'].includes(rootSegment);
 
-    if (!user && inAuthGroup) {
-      router.replace('/login');
-    } else if (user && !inAuthGroup && segments[0] !== 'register') {
-      router.replace('/(dashboard)/home');
+    if (user) {
+      // Si está logueado y está en una página pública (como login), mandarlo al home
+      // Pero solo si NO estamos ya en el dashboard para evitar el loop
+      if (isPublicPage && rootSegment !== 'register') {
+        router.replace('/(dashboard)/home');
+      }
+    } else {
+      // Si NO está logueado y trata de entrar al dashboard, mandarlo al login
+      if (inAuthGroup) {
+        router.replace('/login');
+      }
     }
-  }, [user, loading, segments]);
+  }, [user, loading, segments[0]]); // Solo dependemos del segmento principal
 
   return (
     <>

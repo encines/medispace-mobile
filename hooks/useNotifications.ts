@@ -24,7 +24,7 @@ async function saveTokenToSupabase(userId: string, token: string) {
     const { error } = await supabase
       .from('profiles')
       .update({ expo_push_token: token })
-      .eq('user_id', userId);
+      .eq('id', userId);
     
     if (error) {
       console.warn('Error saving push token to Supabase:', error.message);

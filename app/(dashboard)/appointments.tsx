@@ -4,9 +4,9 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { Ionicons } from '@expo/vector-icons';
 import { format } from 'date-fns';
 import { es } from 'date-fns/locale';
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
+import { useFocusEffect, useRouter } from 'expo-router';
 import Toast from 'react-native-toast-message';
-import { useRouter } from 'expo-router';
 import { useAuth } from '../../hooks/useAuth';
 import { supabase } from '../../lib/supabase';
 import { Colors, Spacing, FontSizes, BorderRadius } from '../../constants/theme';
@@ -30,7 +30,7 @@ export default function AppointmentsScreen() {
       let query = supabase
         .from('appointments')
         .select('*')
-        .order('appointment_date', { ascending: false });
+        .order('start_time', { ascending: false });
 
       if (isDoctor) {
         query = query.eq('doctor_id', user!.id);
@@ -50,21 +50,39 @@ export default function AppointmentsScreen() {
       const profileIds = Array.from(new Set(appointmentsResponse.map(a => isDoctor ? a.patient_id : a.doctor_id)));
       const officeIds = Array.from(new Set(appointmentsResponse.map(a => a.office_id).filter(Boolean)));
       
-      const [profilesResult, officesResult, ratingsResult] = await Promise.all([
-        supabase.from('profiles').select('user_id, first_name, last_name, specialty, phone').in('user_id', profileIds),
+      const { data: usersResponse } = await supabase
+        .from('profiles')
+        .select('id, first_name, last_name, phone, doctor_details(specialty)')
+        .in('id', profileIds);
+
+      const [officesResult, ratingsResult] = await Promise.all([
         supabase.from('offices').select('id, name, branches(name)').in('id', officeIds),
         supabase.from('ratings').select('appointment_id, score').in('appointment_id', appointmentsResponse.map(a => a.id))
       ]);
 
+      const profilesData = (usersResponse || []).map(u => ({
+        user_id: u.id,
+        first_name: u.first_name,
+        last_name: u.last_name,
+        phone: u.phone,
+        specialty: u.doctor_details?.[0]?.specialty
+      })) || [];
+
       return appointmentsResponse.map(apt => ({
         ...apt,
-        profiles: profilesResult.data?.find(p => p.user_id === (isDoctor ? apt.patient_id : apt.doctor_id)) || null,
+        profiles: profilesData.find(p => p.user_id === (isDoctor ? apt.patient_id : apt.doctor_id)) || null,
         offices: officesResult.data?.find(o => o.id === apt.office_id) || null,
         userRating: ratingsResult.data?.find(r => r.appointment_id === apt.id) || null
       }));
     },
     enabled: !!user?.id,
   });
+
+  useFocusEffect(
+    useCallback(() => {
+      refetch();
+    }, [refetch])
+  );
 
   const onRefresh = async () => {
     setRefreshing(true);
@@ -144,8 +162,8 @@ export default function AppointmentsScreen() {
     onError: (err: any) => Toast.show({ type: 'error', text1: 'Error', text2: err.message }),
   });
 
-  const isRefundable = (appointmentDate: string, startTime: string) => {
-    const fullDate = new Date(`${appointmentDate}T${startTime}`);
+  const isRefundable = (startTime: string) => {
+    const fullDate = new Date(startTime);
     const now = new Date();
     // Reembolso permitido si faltan al menos 24 horas PARA el inicio
     const diffMs = fullDate.getTime() - now.getTime();
@@ -154,7 +172,7 @@ export default function AppointmentsScreen() {
   };
 
   const handleCancel = (apt: any) => {
-    const refundable = isRefundable(apt.appointment_date, apt.start_time);
+    const refundable = isRefundable(apt.start_time);
     
     if (refundable) {
       Alert.alert(
@@ -206,16 +224,16 @@ export default function AppointmentsScreen() {
     onError: (err: any) => Toast.show({ type: 'error', text1: 'Error', text2: err.message }),
   });
 
-  const isLate = (appointmentDate: string, startTime: string) => {
-    const fullDate = new Date(`${appointmentDate}T${startTime}`);
+  const isLate = (startTime: string) => {
+    const fullDate = new Date(startTime);
     const now = new Date();
     const diffMs = now.getTime() - fullDate.getTime();
     const diffMins = diffMs / 60000;
     return diffMins > 30;
   };
 
-  const getStatusInfo = (status: string, aptDate?: string, startTime?: string) => {
-    if (status === 'confirmed' && aptDate && startTime && isLate(aptDate, startTime)) {
+  const getStatusInfo = (status: string, startTime?: string) => {
+    if (status === 'confirmed' && startTime && isLate(startTime)) {
       return { label: 'Atrasada', color: '#ea580c', bg: '#ffedd5', icon: 'alert-circle' as const };
     }
     switch (status) {
@@ -253,16 +271,16 @@ export default function AppointmentsScreen() {
               </View>
             ) : (
               upcoming.map((apt: any) => {
-                const status = getStatusInfo(apt.status, apt.appointment_date, apt.start_time);
-                const late = isLate(apt.appointment_date, apt.start_time);
+                const status = getStatusInfo(apt.status, apt.start_time);
+                const late = isLate(apt.start_time);
                 return (
                   <View key={apt.id} style={styles.card}>
                     <View style={styles.cardHeader}>
                       <View>
                         <Text style={styles.cardDate}>
-                          {format(new Date(apt.appointment_date + 'T00:00:00'), "EEEE, d MMM", { locale: es })}
+                          {format(new Date(apt.start_time), "EEEE, d MMM", { locale: es })}
                         </Text>
-                        <Text style={styles.cardTime}>{apt.start_time?.slice(0, 5)}</Text>
+                        <Text style={styles.cardTime}>{format(new Date(apt.start_time), "HH:mm")} hrs</Text>
                       </View>
                       <View style={[styles.statusBadge, { backgroundColor: status.bg }]}>
                         <Ionicons name={status.icon} size={14} color={status.color} />
@@ -295,10 +313,7 @@ export default function AppointmentsScreen() {
                       {isDoctor && ['scheduled', 'confirmed'].includes(apt.status) && (
                         <TouchableOpacity 
                           style={styles.attendBtn} 
-                          onPress={() => router.push({
-                            pathname: `/(dashboard)/records/${apt.patient_id}`,
-                            params: { appointmentId: apt.id }
-                          })}
+                          onPress={() => router.push(`/(dashboard)/records/${apt.patient_id}?appointmentId=${apt.id}`)}
                         >
                           <Ionicons name="medical" size={14} color="white" />
                           <Text style={styles.attendBtnText}>Atender Cita</Text>
@@ -334,12 +349,12 @@ export default function AppointmentsScreen() {
               <>
                 <Text style={[styles.sectionTitle, { marginTop: Spacing.lg }]}>Historial</Text>
                 {past.map((apt: any) => {
-                  const status = getStatusInfo(apt.status, apt.appointment_date, apt.start_time);
+                  const status = getStatusInfo(apt.status, apt.start_time);
                   return (
                     <View key={apt.id} style={[styles.card, { opacity: 0.7 }]}>
                       <View style={styles.cardHeader}>
                         <Text style={styles.cardDate}>
-                          {format(new Date(apt.appointment_date + 'T00:00:00'), "d MMM yyyy", { locale: es })}
+                          {format(new Date(apt.start_time), "d MMM yyyy", { locale: es })}
                         </Text>
                         <View style={[styles.statusBadge, { backgroundColor: status.bg }]}>
                           <Ionicons name={status.icon} size={14} color={status.color} />

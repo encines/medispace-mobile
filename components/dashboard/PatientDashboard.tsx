@@ -47,8 +47,8 @@ export default function PatientDashboard() {
         appointmentsQuery.data.map((apt: any) => (
           <TouchableOpacity key={apt.id} style={styles.ticketCard} onPress={() => router.push('/(dashboard)/appointments')}>
             <View style={styles.ticketLeft}>
-               <Text style={styles.ticketDay}>{format(new Date(apt.appointment_date + 'T00:00:00'), 'dd')}</Text>
-               <Text style={styles.ticketMonth}>{format(new Date(apt.appointment_date + 'T00:00:00'), 'MMM', { locale: es }).toUpperCase()}</Text>
+               <Text style={styles.ticketDay}>{format(new Date(apt.start_time), 'dd')}</Text>
+               <Text style={styles.ticketMonth}>{format(new Date(apt.start_time), 'MMM', { locale: es }).toUpperCase()}</Text>
             </View>
             <View style={styles.ticketDivider}>
                <View style={styles.ticketDotTop} />
@@ -57,7 +57,7 @@ export default function PatientDashboard() {
             </View>
             <View style={styles.ticketRight}>
                <View style={styles.ticketHeader}>
-                  <Text style={styles.ticketTime}>{apt.start_time?.slice(0, 5)} hrs</Text>
+                  <Text style={styles.ticketTime}>{format(new Date(apt.start_time), 'HH:mm')} hrs</Text>
                   <View style={[styles.statusTag, { backgroundColor: apt.status === 'confirmed' ? '#dcfce7' : '#fef9c3' }]}>
                     <Text style={[styles.statusTagText, { color: apt.status === 'confirmed' ? '#16a34a' : '#ca8a04' }]}>
                       {apt.status === 'confirmed' ? 'Confirmada' : 'Programada'}

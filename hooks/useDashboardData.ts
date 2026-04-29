@@ -12,13 +12,15 @@ export function useAdminStats() {
   return useQuery({
     queryKey: ['admin-dashboard-stats'],
     queryFn: async () => {
-      const [doctorsCount, branchesCount, officesCount] = await Promise.all([
-        supabase.from('user_roles').select('*', { count: 'exact', head: true }).eq('role', 'doctor'),
+      const [doctorsCount, receptionistsCount, branchesCount, officesCount] = await Promise.all([
+        supabase.from('profiles').select('*', { count: 'exact', head: true }).eq('role', 'doctor'),
+        supabase.from('profiles').select('*', { count: 'exact', head: true }).eq('role', 'receptionist'),
         supabase.from('branches').select('*', { count: 'exact', head: true }),
         supabase.from('offices').select('*', { count: 'exact', head: true }).eq('status', 'active'),
       ]);
       return {
         doctors: doctorsCount.count || 0,
+        receptionists: receptionistsCount.count || 0,
         branches: branchesCount.count || 0,
         offices: officesCount.count || 0,
       };
@@ -45,10 +47,12 @@ export function useDoctorFeedback() {
       if (error || !ratings.length) return [];
       
       const patientIds = Array.from(new Set(ratings.map(r => r.patient_id)));
-      const { data: profiles } = await supabase
+      const { data: profilesResult } = await supabase
         .from('profiles')
-        .select('user_id, first_name, last_name, avatar_url')
-        .in('user_id', patientIds);
+        .select('id, first_name, last_name, avatar_url')
+        .in('id', patientIds);
+
+      const profiles = profilesResult?.map(u => ({ user_id: u.id, first_name: u.first_name, last_name: u.last_name, avatar_url: u.avatar_url })) || [];
 
       return ratings.map(r => ({
         ...r,
@@ -74,10 +78,10 @@ export function useUpcomingAppointments(role: 'doctor' | 'patient' | 'receptioni
       let query = supabase
         .from('appointments')
         .select('*')
-        .gte('appointment_date', today)
+        .gte('start_time', today)
         .in('status', ['scheduled', 'confirmed'])
-        .order('appointment_date', { ascending: true })
-        .limit(role === 'patient' ? 3 : 5);
+        .order('start_time', { ascending: true })
+        .limit(10);
 
       if (role === 'patient') {
         query = query.eq('patient_id', user!.id);
@@ -93,10 +97,12 @@ export function useUpcomingAppointments(role: 'doctor' | 'patient' | 'receptioni
         role === 'patient' ? a.doctor_id : a.patient_id
       )));
 
-      const { data: profiles } = await supabase
+      const { data: profilesResult } = await supabase
         .from('profiles')
-        .select('user_id, first_name, last_name, avatar_url')
-        .in('user_id', targetIds);
+        .select('id, first_name, last_name, avatar_url')
+        .in('id', targetIds);
+
+      const profiles = profilesResult?.map(u => ({ user_id: u.id, first_name: u.first_name, last_name: u.last_name, avatar_url: u.avatar_url })) || [];
 
       return appointments.map(apt => ({
         ...apt,

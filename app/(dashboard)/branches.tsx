@@ -116,7 +116,7 @@ export default function BentoBranchesScreen() {
             style={styles.officesBtn}
             onPress={() => router.push({ pathname: '/(dashboard)/offices', params: { branchId: item.id, branchName: item.name } })}
           >
-            <Text style={styles.officesBtnText}>Consultas</Text>
+            <Text style={styles.officesBtnText}>Consultorios</Text>
             <Ionicons name="chevron-forward" size={14} color={Colors.secondary} />
           </TouchableOpacity>
         </View>

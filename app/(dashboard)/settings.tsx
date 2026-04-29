@@ -28,7 +28,7 @@ export default function FeeSettingsScreen() {
   const updateFeeMutation = useMutation({
     mutationFn: async (newFee: number) => {
       const { error } = await supabase
-        .from('profiles')
+        .from('doctor_details')
         .update({ consultation_fee: newFee })
         .eq('user_id', user?.id);
       if (error) throw error;

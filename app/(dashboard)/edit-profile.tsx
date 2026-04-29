@@ -9,7 +9,7 @@ import { Colors, Spacing, FontSizes, BorderRadius } from '../../constants/theme'
 
 export default function EditProfileScreen() {
   const router = useRouter();
-  const { profile, refreshProfile } = useAuth();
+  const { profile, roles, refreshProfile } = useAuth();
   const [loading, setLoading] = useState(false);
 
   const [formData, setFormData] = useState({
@@ -26,20 +26,29 @@ export default function EditProfileScreen() {
     
     setLoading(true);
     try {
-      const { error } = await supabase
+      const { error: userError } = await supabase
         .from('profiles')
         .update({
           phone: formData.phone,
-          address: formData.address,
-          blood_type: formData.blood_type,
-          allergies: formData.allergies,
-          emergency_contact_name: formData.emergency_contact_name,
-          emergency_contact_phone: formData.emergency_contact_phone,
-          updated_at: new Date().toISOString(),
         })
-        .eq('user_id', profile.user_id);
+        .eq('id', profile.user_id);
 
-      if (error) throw error;
+      if (userError) throw userError;
+
+      if (roles?.includes('patient')) {
+        const { error: patientError } = await supabase
+          .from('patient_details')
+          .update({
+            address: formData.address,
+            blood_type: formData.blood_type,
+            allergies: formData.allergies,
+            emergency_contact_name: formData.emergency_contact_name,
+            emergency_contact_phone: formData.emergency_contact_phone,
+          })
+          .eq('user_id', profile.user_id);
+          
+        if (patientError) throw patientError;
+      }
 
       await refreshProfile();
       Alert.alert('Éxito', 'Perfil actualizado correctamente');

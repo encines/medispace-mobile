@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { View, Text, StyleSheet, ScrollView, TouchableOpacity, TextInput, ActivityIndicator } from 'react-native';
+import { View, Text, StyleSheet, ScrollView, TouchableOpacity, TextInput, ActivityIndicator, RefreshControl } from 'react-native';
 import { Image } from 'expo-image';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useQuery } from '@tanstack/react-query';
@@ -13,6 +13,7 @@ export default function CatalogScreen() {
   const { roles, user } = useAuth();
   const router = useRouter();
   const [search, setSearch] = useState('');
+  const [refreshing, setRefreshing] = useState(false);
 
   const primaryRole = roles.includes('admin') ? 'admin'
     : roles.includes('doctor') ? 'doctor'
@@ -30,14 +31,29 @@ export default function CatalogScreen() {
         const assignedIds = (assignments || []).map(a => a.doctor_id);
 
         // 2. Obtener perfiles que tengan especialidad o asignación
-        const { data: profiles, error: profilesError } = await supabase
+        const { data: profilesResult, error: profilesError } = await supabase
           .from('profiles')
-          .select('*');
+          .select('id, first_name, last_name, avatar_url, doctor_details(specialty, consultation_fee)')
+          .eq('role', 'doctor');
         
         if (profilesError) throw profilesError;
 
-        const doctorsList = (profiles || []).filter(p => 
-          (p.specialty && p.specialty.trim() !== '') || assignedIds.includes(p.user_id)
+        const profiles = profilesResult?.map((u: any) => {
+          // Extraer especialidad manejando posibles formatos (array u objeto)
+          const details = Array.isArray(u.doctor_details) ? u.doctor_details[0] : u.doctor_details;
+          
+          return {
+            user_id: u.id,
+            first_name: u.first_name,
+            last_name: u.last_name,
+            avatar_url: u.avatar_url,
+            specialty: details?.specialty || null,
+            consultation_fee: details?.consultation_fee || null
+          };
+        }) || [];
+
+        const doctorsList = profiles.filter(p => 
+          assignedIds.includes(p.user_id)
         );
 
         // 3. Obtener Ratings
@@ -59,6 +75,12 @@ export default function CatalogScreen() {
       }
     },
   });
+  
+  const onRefresh = async () => {
+    setRefreshing(true);
+    await refetch();
+    setRefreshing(false);
+  };
 
   const filtered = doctors?.filter(d =>
     `${d.first_name || ''} ${d.last_name || ''} ${d.specialty || ''}`.toLowerCase().includes(search.toLowerCase())
@@ -66,7 +88,12 @@ export default function CatalogScreen() {
 
   return (
     <SafeAreaView style={styles.container}>
-      <ScrollView contentContainerStyle={styles.content}>
+      <ScrollView 
+        contentContainerStyle={styles.content}
+        refreshControl={
+          <RefreshControl refreshing={refreshing} onRefresh={onRefresh} colors={[Colors.secondary]} />
+        }
+      >
         <Text style={styles.title}>Nuestros Especialistas</Text>
         <Text style={styles.subtitle}>Encuentra al doctor ideal para ti</Text>
 
@@ -121,7 +148,7 @@ export default function CatalogScreen() {
                       <Text style={styles.ratingText}>{doctor.avgRating} ({doctor.totalReviews})</Text>
                     </View>
                   )}
-                  {doctor.consultation_fee && (
+                  {(doctor.consultation_fee !== null && doctor.consultation_fee !== undefined) && (
                     <Text style={styles.feeText}>${doctor.consultation_fee}</Text>
                   )}
                 </View>

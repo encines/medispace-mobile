@@ -61,21 +61,81 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   const fetchUserData = async (userId: string) => {
     try {
-      const [rolesRes, profileRes] = await Promise.all([
-        supabase.from('user_roles').select('role').eq('user_id', userId),
-        supabase.from('profiles').select('user_id, first_name, last_name, phone, specialty, consultation_fee, medical_license, date_of_birth, gender, address, blood_type, allergies, emergency_contact_name, emergency_contact_phone, avatar_url').eq('user_id', userId).single(),
-      ]);
-      
-      if (rolesRes.error && rolesRes.error.code !== 'PGRST116') {
-        console.error('Error fetching roles:', rolesRes.error);
-      }
-      
-      if (profileRes.error && profileRes.error.code !== 'PGRST116') {
-        console.error('Error fetching profile:', profileRes.error);
+      // 1. Fetch user base data
+      const { data: userData, error: userError } = await supabase
+        .from('profiles')
+        .select('*')
+        .eq('id', userId)
+        .single();
+        
+      if (userError && userError.code !== 'PGRST116') {
+        console.error('Error fetching user base data:', userError);
       }
 
-      setRoles(rolesRes.data?.map(r => r.role as AppRole) || []);
-      setProfile(profileRes.data || null);
+      const role = userData?.role as AppRole || 'patient';
+      setRoles([role]);
+
+      let combinedProfile: Profile | null = null;
+
+      if (userData) {
+        // Build base profile
+        combinedProfile = {
+          user_id: userData.id,
+          first_name: userData.first_name,
+          last_name: userData.last_name || '',
+          phone: userData.phone,
+          avatar_url: userData.avatar_url,
+          specialty: null,
+          consultation_fee: null,
+          medical_license: null,
+          date_of_birth: null,
+          gender: null,
+          address: null,
+          blood_type: null,
+          allergies: null,
+          emergency_contact_name: null,
+          emergency_contact_phone: null,
+        };
+
+        // Fetch details based on role
+        if (role === 'patient') {
+          const { data: patientDetails } = await supabase
+            .from('patient_details')
+            .select('*')
+            .eq('user_id', userId)
+            .single();
+            
+          if (patientDetails) {
+            combinedProfile = {
+              ...combinedProfile,
+              date_of_birth: patientDetails.birth_date,
+              gender: patientDetails.gender,
+              address: patientDetails.address,
+              blood_type: patientDetails.blood_type,
+              allergies: patientDetails.allergies,
+              emergency_contact_name: patientDetails.emergency_contact_name,
+              emergency_contact_phone: patientDetails.emergency_contact_phone,
+            };
+          }
+        } else if (role === 'doctor') {
+          const { data: doctorDetails } = await supabase
+            .from('doctor_details')
+            .select('*')
+            .eq('user_id', userId)
+            .single();
+            
+          if (doctorDetails) {
+            combinedProfile = {
+              ...combinedProfile,
+              specialty: doctorDetails.specialty,
+              consultation_fee: doctorDetails.consultation_fee,
+              medical_license: doctorDetails.medical_license,
+            };
+          }
+        }
+      }
+
+      setProfile(combinedProfile);
     } catch (error) {
       console.error('Unexpected error in fetchUserData:', error);
     }

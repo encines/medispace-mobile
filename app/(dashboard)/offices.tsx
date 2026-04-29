@@ -19,7 +19,7 @@ export default function GlobalOfficesScreen() {
   const [floor, setFloor] = useState('');
   const [status, setStatus] = useState<'active' | 'suspended'>('active');
 
-  // 1. Fetch branches for the selector
+
   const { data: branches } = useQuery({
     queryKey: ['admin-branches-list'],
     queryFn: async () => {
@@ -29,7 +29,6 @@ export default function GlobalOfficesScreen() {
     },
   });
 
-  // 2. Fetch offices (filter by branch if selected)
   const { data: offices, isLoading, refetch } = useQuery({
     queryKey: ['admin-offices-global', selectedBranchId],
     queryFn: async () => {
@@ -159,7 +158,7 @@ export default function GlobalOfficesScreen() {
             style={[styles.filterChip, !selectedBranchId && styles.filterChipActive]}
             onPress={() => setSelectedBranchId(null)}
           >
-            <Text style={[styles.filterChipText, !selectedBranchId && styles.filterChipTextActive]}>Todas las sedes</Text>
+            <Text style={[styles.filterChipText, !selectedBranchId && styles.filterChipTextActive]}>Todas los consultorios</Text>
           </TouchableOpacity>
           {branches?.map(b => (
             <TouchableOpacity 

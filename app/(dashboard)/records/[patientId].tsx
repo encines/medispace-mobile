@@ -9,6 +9,7 @@ import * as Print from 'expo-print';
 import * as Sharing from 'expo-sharing';
 import { format, differenceInYears } from 'date-fns';
 import { es } from 'date-fns/locale';
+import Toast from 'react-native-toast-message';
 import { supabase } from '../../../lib/supabase';
 import { useAuth } from '../../../hooks/useAuth';
 import { Colors, Spacing } from '../../../constants/theme';
@@ -71,7 +72,7 @@ export default function PatientRecordScreen() {
       if (uploadError) throw uploadError;
 
       const { data: { publicUrl } } = supabase.storage.from('avatars').getPublicUrl(filePath);
-      const { error: updateError } = await supabase.from('profiles').update({ avatar_url: publicUrl }).eq('user_id', patientId);
+      const { error: updateError } = await supabase.from('usuarios').update({ avatar_url: publicUrl }).eq('id', patientId);
       if (updateError) throw updateError;
 
       await refetchPatient();
@@ -86,18 +87,39 @@ export default function PatientRecordScreen() {
   const { data: patient, isLoading: isLoadingPatient, refetch: refetchPatient } = useQuery({
     queryKey: ['patient-profile', patientId],
     queryFn: async () => {
-      const { data, error } = await supabase
+      const { data: usuario, error } = await supabase
         .from('profiles')
-        .select('*')
-        .eq('user_id', patientId)
+        .select('id, first_name, last_name, avatar_url, phone, patient_details(address, emergency_contact_name, emergency_contact_phone, blood_type, allergies, gender, birth_date, family_history, pathological_history, non_pathological_history, obstetric_history)')
+        .eq('id', patientId)
         .single();
       if (error) throw error;
-      return data;
+      
+      const details = Array.isArray(usuario.patient_details) ? usuario.patient_details[0] : usuario.patient_details;
+      
+      return {
+        id: usuario.id,
+        first_name: usuario.first_name,
+        last_name: usuario.last_name,
+        avatar_url: usuario.avatar_url,
+        phone: usuario.phone,
+        address: details?.address,
+        emergency_contact_name: details?.emergency_contact_name,
+        emergency_contact_phone: details?.emergency_contact_phone,
+        blood_type: details?.blood_type,
+        allergies: details?.allergies,
+        gender: details?.gender,
+        date_of_birth: details?.birth_date,
+        medical_history: {
+           family_history: details?.family_history,
+           pathological: details?.pathological_history,
+           non_pathological: details?.non_pathological_history,
+           obs_history: details?.obstetric_history
+        }
+      };
     },
   });
 
 
-  // Form State for New Note
   const [newNote, setNewNote] = useState({
     reason: '',
     physical_exam: '',
@@ -112,7 +134,6 @@ export default function PatientRecordScreen() {
     prescription: '',
   });
 
-  // Auto-open modal if coming from an attended appointment
   useEffect(() => {
     if (appointmentId) {
       setIsNoteModalVisible(true);
@@ -120,7 +141,6 @@ export default function PatientRecordScreen() {
     }
   }, [appointmentId]);
 
-  // 2. Fetch Medical Records (Notes)
   const { data: records, isLoading: isLoadingRecords, refetch: refetchRecords } = useQuery({
     queryKey: ['patient-records', patientId],
     queryFn: async () => {
@@ -136,26 +156,28 @@ export default function PatientRecordScreen() {
 
   const createNoteMutation = useMutation({
     mutationFn: async () => {
-      let targetAppointmentId = appointmentId;
+      // Aseguramos que el ID sea un string puro
+      let targetId = Array.isArray(appointmentId) ? appointmentId[0] : appointmentId;
 
-      // If no appointmentId was passed as a param, try to find the last one between this doctor and patient
-      if (!targetAppointmentId) {
-        const { data: appointments } = await supabase
+      // Si no tenemos ID de cita, buscamos la más cercana que esté programada o confirmada
+      if (!targetId) {
+        const { data: apts } = await supabase
           .from('appointments')
           .select('id')
           .eq('patient_id', patientId)
           .eq('doctor_id', user?.id)
-          .order('created_at', { ascending: false })
+          .in('status', ['scheduled', 'confirmed'])
+          .order('start_time', { ascending: true })
           .limit(1);
-        targetAppointmentId = appointments?.[0]?.id;
+        targetId = apts?.[0]?.id;
       }
       
-      // We no longer throw an error here, allowing notes without a specific appointment
-      
-      const { error } = await supabase.from('medical_records').insert({
+      console.log("Intentando cerrar cita ID:", targetId);
+
+      const { error: recordError } = await supabase.from('medical_records').insert({
         patient_id: patientId as string,
         doctor_id: user?.id as string,
-        appointment_id: targetAppointmentId || null, // Allow null
+        appointment_id: targetId || null,
         reason: newNote.reason,
         physical_exam: newNote.physical_exam,
         blood_pressure: newNote.blood_pressure,
@@ -169,24 +191,47 @@ export default function PatientRecordScreen() {
         prescription: newNote.prescription,
       });
 
-      if (error) throw error;
+      if (recordError) throw recordError;
 
-      // Automatically complete the appointment if one was linked
-      if (targetAppointmentId) {
-        const { error: updateError } = await supabase
+      // Marcar la cita como completada
+      if (targetId) {
+        const { data: updatedData, error: updateError } = await supabase
           .from('appointments')
           .update({ status: 'completed' as any })
-          .eq('id', targetAppointmentId);
+          .eq('id', targetId)
+          .select();
           
         if (updateError) {
-          console.error("Error updating appointment status:", updateError);
-          // We don't throw here to avoid failing the whole mutation if the record was already saved
+           Alert.alert("Error al cerrar cita", updateError.message);
+           throw updateError;
         }
+
+        if (!updatedData || updatedData.length === 0) {
+          console.log("No se actualizó ninguna fila. Verificando permisos...");
+          return { success: true, id: null, warning: "La nota se guardó, pero la cita no cambió de estado. Verifica tus permisos." };
+        }
+
+        return { success: true, id: targetId };
       }
+      return { success: true, id: null };
     },
-    onSuccess: () => {
+    onSuccess: (data) => {
       queryClient.invalidateQueries({ queryKey: ['patient-records', patientId] });
-      Alert.alert('Éxito', 'Nota guardada correctamente');
+      queryClient.invalidateQueries({ queryKey: ['upcoming-appointments'] });
+      queryClient.invalidateQueries({ queryKey: ['patient-appointments'] });
+      
+      if (data?.warning) {
+        Alert.alert('Atención', data.warning, [{ text: 'OK', onPress: () => router.back() }]);
+        return;
+      }
+
+      const msg = data?.id ? `Cita ${data.id.slice(0,8)} finalizada correctamente.` : "Nota guardada (sin cita vinculada).";
+      Alert.alert('Éxito', msg, [
+        { text: 'OK', onPress: () => {
+          setIsNoteModalVisible(false);
+          router.back(); 
+        }}
+      ]);
       setIsNoteModalVisible(false);
       setNewNote({
         reason: '', physical_exam: '', blood_pressure: '', heart_rate: '',
@@ -202,16 +247,14 @@ export default function PatientRecordScreen() {
   const updateHistoryMutation = useMutation({
     mutationFn: async () => {
       const { error } = await supabase
-        .from('profiles')
+        .from('patient_details')
         .update({
           blood_type: editedHistory.blood_type,
           allergies: editedHistory.allergies,
-          medical_history: {
-            family_history: editedHistory.family_history,
-            pathological: editedHistory.pathological,
-            non_pathological: editedHistory.non_pathological,
-            obs_history: editedHistory.obs_history
-          }
+          family_history: editedHistory.family_history,
+          pathological_history: editedHistory.pathological,
+          non_pathological_history: editedHistory.non_pathological,
+          obstetric_history: editedHistory.obs_history
         })
         .eq('user_id', patientId);
 
@@ -224,6 +267,32 @@ export default function PatientRecordScreen() {
     },
     onError: (err: any) => Alert.alert('Error', err.message),
   });
+
+  const deleteRecordMutation = useMutation({
+    mutationFn: async (recordId: string) => {
+      const { error } = await supabase
+        .from('medical_records')
+        .delete()
+        .eq('id', recordId);
+      if (error) throw error;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['patient-records', patientId] });
+      Toast.show({ type: 'success', text1: 'Nota eliminada' });
+    },
+    onError: (err: any) => Alert.alert('Error', err.message),
+  });
+
+  const handleDeleteRecord = (recordId: string) => {
+    Alert.alert(
+      '¿Eliminar nota?',
+      'Esta acción no se puede deshacer.',
+      [
+        { text: 'Cancelar', style: 'cancel' },
+        { text: 'Eliminar', style: 'destructive', onPress: () => deleteRecordMutation.mutate(recordId) }
+      ]
+    );
+  };
 
   const handleOpenHistory = () => {
     setEditedHistory({
@@ -357,7 +426,7 @@ export default function PatientRecordScreen() {
           </TouchableOpacity>
           <View>
             <Text style={styles.headerName}>{patient?.first_name} {patient?.last_name}</Text>
-            <Text style={styles.headerSub}>ID: {patient?.id.slice(0, 8)} • {age} años • {patient?.gender === 'male' ? 'H' : 'M'}</Text>
+            <Text style={styles.headerSub}>ID: {patient?.id.slice(0, 8)} • {age} años • {patient?.gender === 'male' ? 'M' : 'F'}</Text>
           </View>
         </View>
       </View>
@@ -453,6 +522,11 @@ export default function PatientRecordScreen() {
                     <TouchableOpacity onPress={() => handleDownloadPDF(record)} style={styles.recordDownloadBtn}>
                       <Ionicons name="download-outline" size={18} color={Colors.secondary} />
                     </TouchableOpacity>
+                    {isDoctor && (
+                      <TouchableOpacity onPress={() => handleDeleteRecord(record.id)} style={[styles.recordDownloadBtn, { backgroundColor: '#fef2f2' }]}>
+                        <Ionicons name="trash-outline" size={18} color="#dc2626" />
+                      </TouchableOpacity>
+                    )}
                     <View style={styles.badge}><Text style={styles.badgeText}>Consulta</Text></View>
                   </View>
                 </View>

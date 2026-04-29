@@ -9,7 +9,6 @@ import { LinearGradient } from 'expo-linear-gradient';
 import { useAuth } from '../../hooks/useAuth';
 import { Colors, Spacing, BorderRadius, Gradients, Shadows } from '../../constants/theme';
 
-// Import Role Dashboards
 import AdminDashboard from '../../components/dashboard/AdminDashboard';
 import DoctorDashboard from '../../components/dashboard/DoctorDashboard';
 import PatientDashboard from '../../components/dashboard/PatientDashboard';

@@ -80,7 +80,6 @@ export default function ProfileScreen() {
       const fileName = `${Date.now()}-${Math.random().toString(36).substring(7)}.${fileExt}`;
       const filePath = `${user.id}/${fileName}`;
 
-      // 2. Upload to storage using Uint8Array
       const { error: uploadError } = await supabase.storage
         .from('avatars')
         .upload(filePath, byteArray, {
@@ -90,16 +89,14 @@ export default function ProfileScreen() {
 
       if (uploadError) throw uploadError;
 
-      // 3. Get Public URL
       const { data: { publicUrl } } = supabase.storage
         .from('avatars')
         .getPublicUrl(filePath);
 
-      // 4. Update Profile
       const { error: updateError } = await supabase
         .from('profiles')
         .update({ avatar_url: publicUrl })
-        .eq('user_id', user.id);
+        .eq('id', user.id);
 
       if (updateError) throw updateError;
 

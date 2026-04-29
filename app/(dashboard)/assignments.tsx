@@ -34,7 +34,7 @@ export default function GlobalAssignmentsScreen() {
   const updateFeeMutation = useMutation({
     mutationFn: async (newFee: number) => {
       const { error } = await supabase
-        .from('profiles')
+        .from('doctor_details')
         .update({ consultation_fee: newFee })
         .eq('user_id', user?.id);
       if (error) throw error;
@@ -72,15 +72,18 @@ export default function GlobalAssignmentsScreen() {
     retry: 2,
     enabled: !!isAdmin,
     queryFn: async () => {
-      const { data: rolesData } = await supabase.from('user_roles').select('user_id').eq('role', 'doctor');
-      if (!rolesData?.length) return [];
-      const { data: profiles } = await supabase
+      const { data: profilesResult } = await supabase
         .from('profiles')
-        .select('*')
-        .in('user_id', rolesData.map(r => r.user_id))
+        .select('id, first_name, last_name')
+        .eq('role', 'doctor')
         .eq('is_active', true)
         .order('first_name');
-      return profiles || [];
+      
+      return profilesResult?.map((u: any) => ({
+        user_id: u.id,
+        first_name: u.first_name,
+        last_name: u.last_name
+      })) || [];
     },
   });
 
@@ -112,7 +115,7 @@ export default function GlobalAssignmentsScreen() {
         .from('doctor_assignments')
         .select(`
           *,
-          profiles(first_name, last_name, specialty),
+          profiles(first_name, last_name, doctor_details(specialty)),
           offices(name, status, branches(name, status))
         `);
       
@@ -129,12 +132,12 @@ export default function GlobalAssignmentsScreen() {
         const docId = item.doctor_id;
         let group = grouped.find(g => g.id === docId);
         if (!group) {
-          const profile = item.profiles;
-          const name = profile ? `Dr. ${profile.first_name} ${profile.last_name}` : 'Especialista sin nombre';
+          const profileData = item.profiles;
+          const name = profileData ? `Dr. ${profileData.first_name} ${profileData.last_name}` : 'Especialista sin nombre';
           group = {
             id: docId,
             name: name,
-            specialty: profile?.specialty || 'General',
+            specialty: profileData?.doctor_details?.[0]?.specialty || 'General',
             schedules: []
           };
           grouped.push(group);
@@ -176,8 +179,8 @@ export default function GlobalAssignmentsScreen() {
           
           if (overlap) {
             // Normalize profile access
-            const profile = Array.isArray(ex.profiles) ? ex.profiles[0] : ex.profiles;
-            const docName = profile ? `Dr. ${profile.first_name} ${profile.last_name}` : 'el médico';
+            const profileData = Array.isArray(ex.profiles) ? ex.profiles[0] : ex.profiles;
+            const docName = profileData ? `Dr. ${profileData.first_name} ${profileData.last_name}` : 'el médico';
 
             // Check Doctor Conflict
             if (ex.doctor_id === selectedDoctorId) {
@@ -438,14 +441,24 @@ export default function GlobalAssignmentsScreen() {
                 <View style={styles.row}>
                   <TouchableOpacity 
                     style={[styles.modalityBtn, modality === 'hourly' && styles.modalityBtnActive]}
-                    onPress={() => setModality('hourly')}
+                    onPress={() => {
+                      setModality('hourly');
+                      // Reset to a standard slot for hourly
+                      setStartTime(new Date(new Date().setHours(9, 0, 0, 0)));
+                      setEndTime(new Date(new Date().setHours(14, 0, 0, 0)));
+                    }}
                   >
                     <Ionicons name="time-outline" size={18} color={modality === 'hourly' ? 'white' : Colors.textMuted} />
                     <Text style={[styles.modalityBtnText, modality === 'hourly' && { color: 'white' }]}>Por Hora</Text>
                   </TouchableOpacity>
                   <TouchableOpacity 
                     style={[styles.modalityBtn, modality === 'daily' && styles.modalityBtnActive]}
-                    onPress={() => setModality('daily')}
+                    onPress={() => {
+                      setModality('daily');
+                      // Set default full day for daily
+                      setStartTime(new Date(new Date().setHours(8, 0, 0, 0)));
+                      setEndTime(new Date(new Date().setHours(20, 0, 0, 0)));
+                    }}
                   >
                     <Ionicons name="today-outline" size={18} color={modality === 'daily' ? 'white' : Colors.textMuted} />
                     <Text style={[styles.modalityBtnText, modality === 'daily' && { color: 'white' }]}>Por Día</Text>
