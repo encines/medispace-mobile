@@ -119,6 +119,7 @@ CREATE TABLE IF NOT EXISTS public.appointments (
     office_id VARCHAR(20) REFERENCES public.offices(id),
     patient_id UUID REFERENCES public.profiles(id) ON DELETE CASCADE,
     doctor_id UUID REFERENCES public.profiles(id) ON DELETE CASCADE,
+    notes TEXT,
     created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );
 

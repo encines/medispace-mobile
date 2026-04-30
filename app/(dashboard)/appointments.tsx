@@ -17,12 +17,16 @@ export default function AppointmentsScreen() {
   const queryClient = useQueryClient();
   const [refreshing, setRefreshing] = useState(false);
   const isDoctor = roles.includes('doctor');
+  const isReceptionist = roles.includes('receptionist');
+  const isAdmin = roles.includes('admin');
+  const isStaff = isReceptionist || isAdmin;
 
   // Rating Modal state
   const [ratingModalVisible, setRatingModalVisible] = useState(false);
   const [selectedApt, setSelectedApt] = useState<any>(null);
   const [ratingScore, setRatingScore] = useState(5);
   const [ratingComment, setRatingComment] = useState('');
+  const [searchQuery, setSearchQuery] = useState('');
 
   const { data: appointments, isLoading, refetch } = useQuery({
     queryKey: ['patient-appointments', user?.id],
@@ -34,7 +38,7 @@ export default function AppointmentsScreen() {
 
       if (isDoctor) {
         query = query.eq('doctor_id', user!.id);
-      } else {
+      } else if (!isStaff) {
         query = query.eq('patient_id', user!.id);
       }
 
@@ -47,7 +51,7 @@ export default function AppointmentsScreen() {
       if (!appointmentsResponse || appointmentsResponse.length === 0) return [];
 
       // Manual join with profiles and offices
-      const profileIds = Array.from(new Set(appointmentsResponse.map(a => isDoctor ? a.patient_id : a.doctor_id)));
+      const profileIds = Array.from(new Set(appointmentsResponse.flatMap(a => [a.patient_id, a.doctor_id])));
       const officeIds = Array.from(new Set(appointmentsResponse.map(a => a.office_id).filter(Boolean)));
       
       const { data: usersResponse } = await supabase
@@ -71,6 +75,8 @@ export default function AppointmentsScreen() {
       return appointmentsResponse.map(apt => ({
         ...apt,
         profiles: profilesData.find(p => p.user_id === (isDoctor ? apt.patient_id : apt.doctor_id)) || null,
+        patient_profile: profilesData.find(p => p.user_id === apt.patient_id) || null,
+        doctor_profile: profilesData.find(p => p.user_id === apt.doctor_id) || null,
         offices: officesResult.data?.find(o => o.id === apt.office_id) || null,
         userRating: ratingsResult.data?.find(r => r.appointment_id === apt.id) || null
       }));
@@ -102,7 +108,7 @@ export default function AppointmentsScreen() {
           event: '*',
           schema: 'public',
           table: 'appointments',
-          filter: isDoctor ? `doctor_id=eq.${user.id}` : `patient_id=eq.${user.id}`,
+          filter: isStaff ? undefined : (isDoctor ? `doctor_id=eq.${user.id}` : `patient_id=eq.${user.id}`),
         },
         () => {
           queryClient.invalidateQueries({ queryKey: ['patient-appointments', user.id] });
@@ -245,11 +251,37 @@ export default function AppointmentsScreen() {
     }
   };
 
-  const upcoming = appointments?.filter(a => ['scheduled', 'confirmed'].includes(a.status)) || [];
-  const past = appointments?.filter(a => ['completed', 'cancelled'].includes(a.status)) || [];
+  const filteredAppointments = appointments?.filter(apt => {
+    if (!searchQuery) return true;
+    const q = searchQuery.toLowerCase();
+    const patientName = `${apt.patient_profile?.first_name} ${apt.patient_profile?.last_name}`.toLowerCase();
+    const doctorName = `${apt.doctor_profile?.first_name} ${apt.doctor_profile?.last_name}`.toLowerCase();
+    return patientName.includes(q) || doctorName.includes(q);
+  }) || [];
+
+  const upcoming = filteredAppointments.filter(a => ['scheduled', 'confirmed', 'arrived'].includes(a.status)) || [];
+  const past = filteredAppointments.filter(a => ['completed', 'cancelled'].includes(a.status)) || [];
 
   return (
     <SafeAreaView style={styles.container}>
+      <View style={styles.searchHeader}>
+        <View style={styles.searchContainer}>
+          <Ionicons name="search" size={18} color={Colors.textMuted} />
+          <TextInput 
+            style={styles.searchInput}
+            placeholder="Buscar por paciente o doctor..."
+            value={searchQuery}
+            onChangeText={setSearchQuery}
+            placeholderTextColor={Colors.textMuted}
+          />
+          {searchQuery !== '' && (
+            <TouchableOpacity onPress={() => setSearchQuery('')}>
+              <Ionicons name="close-circle" size={18} color={Colors.textMuted} />
+            </TouchableOpacity>
+          )}
+        </View>
+      </View>
+
       <ScrollView 
         contentContainerStyle={styles.content}
         refreshControl={
@@ -288,16 +320,24 @@ export default function AppointmentsScreen() {
                       </View>
                     </View>
                     <Text style={styles.cardDoctor}>
-                      {isDoctor ? 'Paciente: ' : 'Dr. '}
-                      {apt.profiles?.first_name} {apt.profiles?.last_name}
+                      {isStaff ? (
+                        `Paciente: ${apt.patient_profile?.first_name} ${apt.patient_profile?.last_name}`
+                      ) : (
+                        isDoctor ? `Paciente: ${apt.profiles?.first_name} ${apt.profiles?.last_name}` : `Dr. ${apt.profiles?.first_name} ${apt.profiles?.last_name}`
+                      )}
                     </Text>
-                    {isDoctor && apt.profiles?.phone && (
+                    {isStaff && (
+                      <Text style={[styles.cardSpecialty, { marginBottom: 4, color: Colors.secondary, fontWeight: '700' }]}>
+                        Atiende: Dr. {apt.doctor_profile?.first_name} {apt.doctor_profile?.last_name}
+                      </Text>
+                    )}
+                    {(isDoctor || isStaff) && apt.patient_profile?.phone && (
                       <View style={styles.patientInfo}>
                          <Ionicons name="call-outline" size={12} color={Colors.textSecondary} />
-                         <Text style={styles.cardSpecialty}>{apt.profiles.phone}</Text>
+                         <Text style={styles.cardSpecialty}>{apt.patient_profile.phone}</Text>
                       </View>
                     )}
-                    {!isDoctor && apt.profiles?.specialty && (
+                    {!isDoctor && !isStaff && apt.profiles?.specialty && (
                       <Text style={styles.cardSpecialty}>{apt.profiles.specialty}</Text>
                     )}
                     
@@ -506,4 +546,9 @@ const styles = StyleSheet.create({
   cancelLinkText: { color: Colors.textMuted, fontWeight: '700', fontSize: FontSizes.sm },
   locationContainer: { flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 8, backgroundColor: '#f0f9ff', padding: 8, borderRadius: 8, alignSelf: 'flex-start' },
   locationText: { fontSize: 12, fontWeight: '700', color: '#0369a1' },
+  
+  // Search Styles
+  searchHeader: { backgroundColor: 'white', paddingHorizontal: Spacing.lg, paddingVertical: Spacing.md, borderBottomWidth: 1, borderBottomColor: Colors.border },
+  searchContainer: { flexDirection: 'row', alignItems: 'center', backgroundColor: '#f1f5f9', borderRadius: 12, paddingHorizontal: 12, height: 45, gap: 8 },
+  searchInput: { flex: 1, fontSize: 14, fontWeight: '600', color: Colors.primary },
 });

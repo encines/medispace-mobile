@@ -6,9 +6,11 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { Ionicons } from '@expo/vector-icons';
 import { supabase } from '../../lib/supabase';
 import { Colors, Spacing, FontSizes, BorderRadius } from '../../constants/theme';
+import { useAuth } from '../../hooks/useAuth';
 
 export default function BentoUserManagementScreen() {
   const router = useRouter();
+  const { user } = useAuth();
   const queryClient = useQueryClient();
   const [filter, setFilter] = useState<'all' | 'doctor' | 'receptionist'>('all');
 
@@ -96,16 +98,26 @@ export default function BentoUserManagementScreen() {
           </View>
 
           <TouchableOpacity 
-            style={[styles.statusBtn, { borderColor: isActive ? '#ef4444' : Colors.secondary }]}
+            style={[
+              styles.statusBtn, 
+              { borderColor: isActive ? '#ef4444' : Colors.secondary },
+              item.user_id === user?.id && { opacity: 0.3, borderColor: '#ccc' }
+            ]}
+            disabled={item.user_id === user?.id}
             onPress={() => {
+              if (item.user_id === user?.id) return;
               Alert.alert(isActive ? 'Baja' : 'Alta', `¿Deseas ${isActive ? 'desactivar' : 'activar'} a ${item.first_name}?`, [
                 { text: 'No' },
                 { text: 'Sí', onPress: () => toggleActiveMutation.mutate({ userId: item.user_id, currentStatus: isActive }) }
               ]);
             }}
           >
-            <Ionicons name={isActive ? "remove-circle-outline" : "add-circle-outline"} size={16} color={isActive ? '#ef4444' : Colors.secondary} />
-            <Text style={[styles.statusBtnText, { color: isActive ? '#ef4444' : Colors.secondary }]}>
+            <Ionicons 
+              name={isActive ? "remove-circle-outline" : "add-circle-outline"} 
+              size={16} 
+              color={item.user_id === user?.id ? '#ccc' : (isActive ? '#ef4444' : Colors.secondary)} 
+            />
+            <Text style={[styles.statusBtnText, { color: item.user_id === user?.id ? '#ccc' : (isActive ? '#ef4444' : Colors.secondary) }]}>
               {isActive ? 'Dar Baja' : 'Activar'}
             </Text>
           </TouchableOpacity>

@@ -57,11 +57,20 @@ export default function AdminDashboard() {
 
 const styles = StyleSheet.create({
   container: { gap: Spacing.md },
-  statsRow: { flexDirection: 'row', gap: 12, marginBottom: 24 },
-  statCard: { flex: 1, backgroundColor: 'white', padding: 16, borderRadius: BorderRadius.xl, ...Shadows.small, alignItems: 'center' },
-  statIconGradient: { width: 40, height: 40, borderRadius: 12, alignItems: 'center', justifyContent: 'center', marginBottom: 10 },
-  statVal: { fontSize: 22, fontWeight: '900', color: Colors.primary },
-  statLab: { fontSize: 10, fontWeight: '700', color: Colors.textMuted, textTransform: 'uppercase' },
+  statsRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 12, marginBottom: 24 },
+  statCard: { 
+    width: '48%', 
+    aspectRatio: 1, 
+    backgroundColor: 'white', 
+    padding: 16, 
+    borderRadius: BorderRadius.xxl, 
+    ...Shadows.medium, 
+    alignItems: 'center', 
+    justifyContent: 'center' 
+  },
+  statIconGradient: { width: 44, height: 44, borderRadius: 14, alignItems: 'center', justifyContent: 'center', marginBottom: 12 },
+  statVal: { fontSize: 28, fontWeight: '900', color: Colors.primary },
+  statLab: { fontSize: 11, fontWeight: '800', color: Colors.textMuted, textTransform: 'uppercase', letterSpacing: 0.5 },
   managementInfoCard: {
     flexDirection: 'row',
     alignItems: 'center',

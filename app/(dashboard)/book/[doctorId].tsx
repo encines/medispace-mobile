@@ -34,6 +34,14 @@ export default function BookAppointmentScreen() {
   const [paymentMethod, setPaymentMethod] = useState<'card' | 'spei' | 'oxxo'>('card');
   const [showVoucher, setShowVoucher] = useState(false);
   const [isGeneratingPdf, setIsGeneratingPdf] = useState(false);
+  const { roles } = useAuth();
+  const isStaff = roles.includes('admin') || roles.includes('receptionist');
+
+  // Staff patient selection
+  const [patientSearch, setPatientSearch] = useState('');
+  const [selectedPatient, setSelectedPatient] = useState<any>(null);
+  const [isSearchingPatient, setIsSearchingPatient] = useState(false);
+  const [patientResults, setPatientResults] = useState<any[]>([]);
 
   // Estados visuales de la tarjeta
   const [cardNumber, setCardNumber] = useState('');
@@ -45,7 +53,27 @@ export default function BookAppointmentScreen() {
     setShowVoucher(false);
     setSelectedSlot(null);
     setSelectedDate('');
-  }, [doctorId]);
+    if (!isStaff) {
+      setSelectedPatient({ id: user?.id, first_name: 'Yo', last_name: '' });
+    }
+  }, [doctorId, user?.id, isStaff]);
+
+  const searchPatients = async (query: string) => {
+    setPatientSearch(query);
+    if (query.length < 3) {
+      setPatientResults([]);
+      return;
+    }
+    setIsSearchingPatient(true);
+    const { data } = await supabase
+      .from('profiles')
+      .select('id, first_name, last_name, phone')
+      .eq('role', 'patient')
+      .or(`first_name.ilike.%${query}%,last_name.ilike.%${query}%,phone.ilike.%${query}%`)
+      .limit(5);
+    setPatientResults(data || []);
+    setIsSearchingPatient(false);
+  };
 
   const handleCardNumberChange = (text: string) => {
     let clean = text.replace(/\D/g, '');
@@ -111,8 +139,8 @@ export default function BookAppointmentScreen() {
       await supabase.from('slot_locks').delete().eq('locked_by', user.id);
       const { error } = await supabase.from('slot_locks').insert({
         doctor_id: doctorId,
-        start_time: `${selectedDate}T${slot.start}:00`,
-        locked_by: user.id,
+        start_time: new Date(`${selectedDate}T${slot.start}:00`).toISOString(),
+        locked_by: user.id, // The lock is still by the receptionist's session
         expires_at: new Date(Date.now() + 10 * 60000).toISOString(),
       });
       if (error) throw error;
@@ -134,8 +162,8 @@ export default function BookAppointmentScreen() {
         .from('slot_locks')
         .select('start_time, locked_by')
         .eq('doctor_id', doctorId)
-        .gte('start_time', `${selectedDate}T00:00:00`)
-        .lte('start_time', `${selectedDate}T23:59:59`)
+        .gte('start_time', new Date(`${selectedDate}T00:00:00`).toISOString())
+        .lte('start_time', new Date(`${selectedDate}T23:59:59`).toISOString())
         .gt('expires_at', new Date().toISOString());
       return data || [];
     },
@@ -150,8 +178,8 @@ export default function BookAppointmentScreen() {
         .from('appointments')
         .select('start_time, status')
         .eq('doctor_id', doctorId)
-        .gte('start_time', `${selectedDate}T00:00:00`)
-        .lte('start_time', `${selectedDate}T23:59:59`)
+        .gte('start_time', new Date(`${selectedDate}T00:00:00`).toISOString())
+        .lte('start_time', new Date(`${selectedDate}T23:59:59`).toISOString())
         .in('status', ['scheduled', 'confirmed']);
       return data || [];
     },
@@ -159,14 +187,15 @@ export default function BookAppointmentScreen() {
   });
 
   const { data: patientDayAppointments } = useQuery({
-    queryKey: ['patient-day-appointments', user?.id, selectedDate],
+    queryKey: ['patient-day-appointments', selectedPatient?.id, selectedDate],
     queryFn: async () => {
+      if (!selectedPatient?.id) return [];
       const { data, error } = await supabase
         .from('appointments')
         .select('doctor_id, start_time')
-        .eq('patient_id', user!.id)
-        .gte('start_time', `${selectedDate}T00:00:00`)
-        .lte('start_time', `${selectedDate}T23:59:59`)
+        .eq('patient_id', selectedPatient.id)
+        .gte('start_time', new Date(`${selectedDate}T00:00:00`).toISOString())
+        .lte('start_time', new Date(`${selectedDate}T23:59:59`).toISOString())
         .in('status', ['scheduled', 'confirmed']);
       if (error) throw error;
       return data || [];
@@ -175,7 +204,7 @@ export default function BookAppointmentScreen() {
   });
 
   const hasAppointmentWithSameDoctorToday = patientDayAppointments?.some(apt => apt.doctor_id === doctorId);
-  const isTimeSlotBookedByPatient = (timeString: string) => patientDayAppointments?.some(apt => apt.start_time.slice(0, 5) === timeString);
+  const isTimeSlotBookedByPatient = (timeString: string) => patientDayAppointments?.some(apt => format(new Date(apt.start_time), 'HH:mm') === timeString);
 
   const dayOfWeek = selectedDate ? new Date(selectedDate + 'T12:00:00').getDay() : -1;
   const { data: assignments } = useQuery({
@@ -201,8 +230,8 @@ export default function BookAppointmentScreen() {
         if (nextSm >= 60) { nextSh += 1; nextSm -= 60; }
         const end = `${String(nextSh).padStart(2, '0')}:${String(nextSm).padStart(2, '0')}`;
         
-        const isTaken = existingAppointments?.some(e => e.start_time.slice(0, 5) === start);
-        const isLocked = activeLocks?.some(l => l.start_time.slice(0, 5) === start && l.locked_by !== user?.id);
+        const isTaken = existingAppointments?.some(e => format(new Date(e.start_time), 'HH:mm') === start);
+        const isLocked = activeLocks?.some(l => format(new Date(l.start_time), 'HH:mm') === start && l.locked_by !== user?.id);
         const isOfficeActive = a.offices?.status === 'active';
         const isBranchActive = a.offices?.branches?.status === 'active';
 
@@ -230,17 +259,19 @@ export default function BookAppointmentScreen() {
         await new Promise(resolve => setTimeout(resolve, 2000));
       }
 
-      const reference = `MS-${user.id.slice(0, 4).toUpperCase()}-${Date.now().toString().slice(-4)}`;
+      const targetPatientId = selectedPatient?.id || user.id;
+      const reference = `MS-${targetPatientId.slice(0, 4).toUpperCase()}-${Date.now().toString().slice(-4)}`;
       const { error } = await supabase.from('appointments').insert({
-        patient_id: user.id,
+        patient_id: targetPatientId,
         doctor_id: doctorId,
         office_id: selectedSlot.office.id,
-        start_time: `${selectedDate}T${selectedSlot.start}:00`,
+        start_time: new Date(`${selectedDate}T${selectedSlot.start}:00`).toISOString(),
         status: (paymentMethod === 'card' ? 'confirmed' : 'scheduled') as any,
         total_price: fee,
         amount_paid: amountToPay,
         payment_method: paymentMethod,
         transfer_reference: reference,
+        notes: isStaff ? `Agendada por ${user.email} (Staff)` : undefined,
         expires_at: new Date(Date.now() + 24 * 3600000).toISOString(), // 24h
       });
       
@@ -289,6 +320,7 @@ export default function BookAppointmentScreen() {
   };
 
   if (showVoucher) {
+    const targetEmail = selectedPatient?.email || user?.email;
     return (
       <SafeAreaView style={styles.container}>
         <ScrollView contentContainerStyle={styles.voucherContainer}>
@@ -299,6 +331,12 @@ export default function BookAppointmentScreen() {
             <View style={styles.voucherDivider} />
             <Text style={styles.voucherLabel}>Monto a pagar:</Text>
             <Text style={styles.voucherAmount}>${amountToPay.toFixed(2)} MXN</Text>
+            {isStaff && (
+               <View style={styles.staffAlert}>
+                  <Ionicons name="information-circle" size={16} color="#1e40af" />
+                  <Text style={styles.staffAlertText}>Cita registrada exitosamente para {selectedPatient?.first_name}.</Text>
+               </View>
+            )}
             {paymentMethod === 'spei' ? (
               <View style={styles.voucherInfo}>
                 <Text style={styles.infoTitle}>TRANSFERENCIA SPEI</Text>
@@ -357,6 +395,46 @@ export default function BookAppointmentScreen() {
           </View>
         </View>
 
+        {isStaff && (
+          <View style={styles.patientSearchSection}>
+            <Text style={styles.sectionTitleSmall}>Seleccionar Paciente</Text>
+            <View style={styles.searchWrapper}>
+              <Ionicons name="search" size={18} color={Colors.textMuted} />
+              <TextInput 
+                style={styles.searchInput}
+                placeholder="Nombre o teléfono del paciente..."
+                value={patientSearch}
+                onChangeText={searchPatients}
+              />
+              {isSearchingPatient && <ActivityIndicator size="small" color={Colors.secondary} />}
+            </View>
+
+            {patientResults.length > 0 && !selectedPatient && (
+              <View style={styles.searchResults}>
+                {patientResults.map(p => (
+                  <TouchableOpacity key={p.id} style={styles.resultItem} onPress={() => { setSelectedPatient(p); setPatientResults([]); setPatientSearch(`${p.first_name} ${p.last_name}`); }}>
+                    <Text style={styles.resultName}>{p.first_name} {p.last_name}</Text>
+                    <Text style={styles.resultPhone}>{p.phone || 'Sin tel.'}</Text>
+                  </TouchableOpacity>
+                ))}
+              </View>
+            )}
+
+            {selectedPatient && (
+              <View style={styles.selectedPatientBadge}>
+                <Ionicons name="person-circle" size={24} color={Colors.secondary} />
+                <View style={{ flex: 1 }}>
+                  <Text style={styles.selectedPatientName}>{selectedPatient.first_name} {selectedPatient.last_name}</Text>
+                  <Text style={styles.selectedPatientSub}>Paciente seleccionado</Text>
+                </View>
+                <TouchableOpacity onPress={() => { setSelectedPatient(null); setPatientSearch(''); }}>
+                  <Text style={{ color: Colors.error, fontWeight: '700' }}>Cambiar</Text>
+                </TouchableOpacity>
+              </View>
+            )}
+          </View>
+        )}
+
         {reviews && reviews.length > 0 && (
           <View style={styles.reviewsListSection}>
             <Text style={styles.sectionTitleSmall}>Opiniones de pacientes</Text>
@@ -395,7 +473,14 @@ export default function BookAppointmentScreen() {
           />
         </View>
 
-        {selectedDate && (
+        {isStaff && !selectedPatient && (
+           <View style={styles.staffWarning}>
+              <Ionicons name="warning" size={20} color="#854d0e" />
+              <Text style={styles.staffWarningText}>Debes seleccionar un paciente antes de elegir horario.</Text>
+           </View>
+        )}
+
+        {selectedDate && (selectedPatient || !isStaff) && (
           <View style={styles.slotsSection}>
             {hasAppointmentWithSameDoctorToday ? (
               <View style={styles.errorContainer}>
@@ -464,7 +549,7 @@ export default function BookAppointmentScreen() {
           </View>
         )}
 
-        {selectedSlot && (
+        {selectedSlot && (selectedPatient || !isStaff) && (
           <View style={styles.summary}>
             <Text style={styles.summaryLabel}>RESUMEN</Text>
             <Text style={styles.summaryDate}>{format(new Date(selectedDate + 'T12:00:00'), "EEEE, d 'de' MMMM", { locale: es })} • {formatTime12h(selectedSlot.start)}</Text>
@@ -649,4 +734,20 @@ const styles = StyleSheet.create({
   errorText: { flex: 1, color: '#b91c1c', fontSize: 13, fontWeight: '600' },
   slotLocationRow: { flexDirection: 'row', alignItems: 'center', gap: 4, marginTop: 4 },
   slotLocationText: { fontSize: 10, color: Colors.textMuted, fontWeight: '600' },
+  
+  // Staff Selection Styles
+  patientSearchSection: { marginBottom: 24, backgroundColor: '#f8fafc', padding: 16, borderRadius: 20, borderWidth: 1, borderColor: '#e2e8f0' },
+  searchWrapper: { flexDirection: 'row', alignItems: 'center', backgroundColor: 'white', paddingHorizontal: 12, borderRadius: 12, borderWidth: 1, borderColor: '#cbd5e1', gap: 8 },
+  searchInput: { flex: 1, height: 44, fontSize: 14, fontWeight: '600' },
+  searchResults: { backgroundColor: 'white', borderRadius: 12, marginTop: 8, borderWidth: 1, borderColor: '#e2e8f0', overflow: 'hidden' },
+  resultItem: { padding: 12, borderBottomWidth: 1, borderBottomColor: '#f1f5f9', flexDirection: 'row', justifyContent: 'space-between' },
+  resultName: { fontWeight: '700', color: Colors.primary },
+  resultPhone: { fontSize: 12, color: Colors.textMuted },
+  selectedPatientBadge: { flexDirection: 'row', alignItems: 'center', gap: 12, backgroundColor: '#f0fdf4', padding: 12, borderRadius: 12, borderWidth: 1, borderColor: '#dcfce7', marginTop: 12 },
+  selectedPatientName: { fontWeight: '800', color: '#16a34a', fontSize: 15 },
+  selectedPatientSub: { fontSize: 11, color: '#15803d' },
+  staffWarning: { flexDirection: 'row', alignItems: 'center', gap: 10, backgroundColor: '#fefce8', padding: 16, borderRadius: 12, borderWidth: 1, borderColor: '#fef08a', marginBottom: 20 },
+  staffWarningText: { flex: 1, color: '#854d0e', fontSize: 13, fontWeight: '700' },
+  staffAlert: { flexDirection: 'row', alignItems: 'center', gap: 8, backgroundColor: '#eff6ff', padding: 12, borderRadius: 12, marginVertical: 12 },
+  staffAlertText: { flex: 1, fontSize: 12, color: '#1e40af', fontWeight: '700' },
 });

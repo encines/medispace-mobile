@@ -22,7 +22,8 @@ export default function GlobalAssignmentsScreen() {
   const isDoctor = roles?.includes('doctor');
   const isAdmin = roles?.includes('admin');
 
-  const [fee, setFee] = useState('');
+   const [fee, setFee] = useState('');
+  const [searchQuery, setSearchQuery] = useState('');
 
   // 0. Manage Fee (Doctors only)
   useEffect(() => {
@@ -310,21 +311,46 @@ export default function GlobalAssignmentsScreen() {
     </View>
   );
 
+  const filteredAssignments = assignments?.filter(group => {
+    if (!searchQuery) return true;
+    const q = searchQuery.toLowerCase();
+    const docMatch = group.name.toLowerCase().includes(q);
+    const branchMatch = group.schedules.some((s: any) => 
+      s.offices?.branches?.name.toLowerCase().includes(q) || 
+      s.offices?.name.toLowerCase().includes(q)
+    );
+    return docMatch || branchMatch;
+  }) || [];
+
   return (
     <SafeAreaView style={styles.container}>
       <View style={styles.header}>
-        <View style={{ flex: 1 }}>
-          <Text style={styles.headerTitle}>{isDoctor ? 'Mi Consultorio' : 'Gestión de Horarios'}</Text>
-          <Text style={styles.headerSubtitle}>
-            {isDoctor ? 'Consulta tus horarios asignados' : 'Asigna y revisa los turnos de tus médicos'}
-          </Text>
-        </View>
+        <Text style={styles.headerTitle}>{isDoctor ? 'Mi Consultorio' : 'Horarios'}</Text>
         {!isDoctor && (
           <TouchableOpacity style={styles.topAddBtn} onPress={() => setModalVisible(true)}>
-            <Ionicons name="add" size={20} color="white" />
-            <Text style={styles.topAddBtnText}>Nueva Asignación</Text>
+            <Ionicons name="add" size={18} color="white" />
+            <Text style={styles.topAddBtnText}>Añadir</Text>
           </TouchableOpacity>
         )}
+      </View>
+      
+      {/* Search Bar */}
+      <View style={styles.searchSection}>
+        <View style={styles.searchContainer}>
+          <Ionicons name="search" size={20} color={Colors.textMuted} />
+          <TextInput 
+            style={styles.searchInput}
+            placeholder="Buscar por médico o sucursal..."
+            value={searchQuery}
+            onChangeText={setSearchQuery}
+            placeholderTextColor={Colors.textMuted}
+          />
+          {searchQuery !== '' && (
+            <TouchableOpacity onPress={() => setSearchQuery('')}>
+              <Ionicons name="close-circle" size={20} color={Colors.textMuted} />
+            </TouchableOpacity>
+          )}
+        </View>
       </View>
 
       <Text style={styles.sectionTitle}>
@@ -368,7 +394,7 @@ export default function GlobalAssignmentsScreen() {
         </View>
       ) : (
         <FlatList
-          data={assignments}
+          data={filteredAssignments}
           renderItem={renderDoctorGroup}
           keyExtractor={item => item.id}
           contentContainerStyle={styles.list}
@@ -519,16 +545,15 @@ export default function GlobalAssignmentsScreen() {
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: '#f8fafc' },
   header: { 
-    flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start',
-    paddingHorizontal: Spacing.lg, paddingVertical: Spacing.xl, backgroundColor: 'white',
+    flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center',
+    paddingHorizontal: Spacing.lg, paddingVertical: Spacing.md, backgroundColor: 'white',
     borderBottomWidth: 1, borderBottomColor: '#e2e8f0',
   },
-  headerTitle: { fontSize: 28, fontWeight: '800', color: Colors.primary, letterSpacing: -0.5 },
-  headerSubtitle: { fontSize: 14, color: Colors.textMuted, marginTop: 4 },
+  headerTitle: { fontSize: 22, fontWeight: '900', color: Colors.primary, letterSpacing: -0.5 },
+  headerSubtitle: { display: 'none' },
   topAddBtn: { 
     flexDirection: 'row', alignItems: 'center', backgroundColor: '#16a34a', 
-    paddingHorizontal: 16, paddingVertical: 10, borderRadius: 12, gap: 6,
-    shadowColor: '#16a34a', shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.2, shadowRadius: 8, elevation: 4,
+    paddingHorizontal: 12, paddingVertical: 8, borderRadius: 10, gap: 4,
   },
   topAddBtnText: { color: 'white', fontWeight: '700', fontSize: 13 },
   sectionTitle: { fontSize: 20, fontWeight: '800', color: '#1e293b', marginHorizontal: Spacing.lg, marginTop: Spacing.xl, marginBottom: Spacing.md },
@@ -634,4 +659,13 @@ const styles = StyleSheet.create({
     textAlign: 'center', fontSize: 16, fontWeight: '800', color: Colors.primary,
   },
   feeSaveBtn: { width: 44, height: 44, borderRadius: 12, backgroundColor: Colors.secondary, alignItems: 'center', justifyContent: 'center' },
+
+  // Search Styles
+  searchSection: { paddingHorizontal: Spacing.lg, marginTop: Spacing.sm },
+  searchContainer: { 
+    flexDirection: 'row', alignItems: 'center', backgroundColor: 'white', 
+    borderRadius: 16, paddingHorizontal: 16, height: 50, gap: 10,
+    borderWidth: 1, borderColor: '#e2e8f0', ...Shadows.small,
+  },
+  searchInput: { flex: 1, fontSize: 15, fontWeight: '600', color: Colors.primary },
 });

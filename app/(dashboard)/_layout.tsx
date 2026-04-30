@@ -125,7 +125,16 @@ export default function DashboardLayout() {
         options={{
           title: 'Perfil',
           tabBarIcon: ({ color, size }) => <Ionicons name="person" size={size} color={color} />,
-          href: primaryRole === 'doctor' ? null : undefined, // Hidden for doctors who use the button in Home
+          href: null,
+        }}
+      />
+
+      <Tabs.Screen
+        name="receptionist-ops"
+        options={{
+          title: 'Operaciones',
+          tabBarIcon: ({ color, size }) => <Ionicons name="grid" size={size} color={color} />,
+          href: primaryRole === 'receptionist' ? '/(dashboard)/receptionist-ops' : null,
         }}
       />
 
