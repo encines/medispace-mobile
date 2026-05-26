@@ -65,20 +65,41 @@ export default function BookAppointmentScreen() {
 
   const searchPatients = async (query: string) => {
     setPatientSearch(query);
-    const normalizedQuery = query.trim();
+    const normalizedQuery = query.trim().replace(/\s+/g, ' ');
     if (normalizedQuery.length < 3) {
       setPatientResults([]);
       return;
     }
     setIsSearchingPatient(true);
-    const { data } = await supabase
-      .from('profiles')
-      .select('id, first_name, last_name, phone')
-      .eq('role', 'patient')
-      .or(`first_name.ilike.%${normalizedQuery}%,last_name.ilike.%${normalizedQuery}%,phone.ilike.%${normalizedQuery}%`)
-      .limit(5);
-    setPatientResults(data || []);
-    setIsSearchingPatient(false);
+    try {
+      const terms = normalizedQuery.split(' ').filter(Boolean);
+      const safeTerms = terms.map(term => term.replace(/[%,()]/g, ''));
+      const orFilters = safeTerms.flatMap(term => [
+        `first_name.ilike.%${term}%`,
+        `last_name.ilike.%${term}%`,
+        `phone.ilike.%${term}%`,
+      ]);
+
+      const { data } = await supabase
+        .from('profiles')
+        .select('id, first_name, last_name, phone')
+        .eq('role', 'patient')
+        .or(orFilters.join(','))
+        .limit(25);
+
+      const filtered = (data || []).filter((patient: any) => {
+        const fullName = `${patient.first_name || ''} ${patient.last_name || ''}`.trim().toLowerCase();
+        const phone = `${patient.phone || ''}`.toLowerCase();
+        return safeTerms.every(term => {
+          const q = term.toLowerCase();
+          return fullName.includes(q) || phone.includes(q);
+        });
+      });
+
+      setPatientResults(filtered.slice(0, 5));
+    } finally {
+      setIsSearchingPatient(false);
+    }
   };
 
   const handleCardNumberChange = (text: string) => {

@@ -7,6 +7,7 @@ import { secondarySupabase } from '../../lib/secondarySupabase';
 import { supabase } from '../../lib/supabase';
 import { validatePhone, formatPhone, translateSupabaseError } from '../../lib/validation';
 import { Colors, Spacing, FontSizes, BorderRadius } from '../../constants/theme';
+import { useQuery } from '@tanstack/react-query';
 
 const specialties = [
   'Medicina General', 'Cardiología', 'Dermatología', 'Pediatría', 'Ginecología', 
@@ -27,6 +28,24 @@ export default function CreateStaffScreen() {
     specialty: specialties[0],
     license: '',
     fee: '',
+    branchId: '',
+  });
+
+  const { data: branches } = useQuery({
+    queryKey: ['admin-branches-list'],
+    queryFn: async () => {
+      const [{ data: branchData, error: branchError }, { data: receptionistData, error: receptionistError }] = await Promise.all([
+        supabase.from('branches').select('id, name, status').order('name'),
+        supabase.from('profiles').select('id, first_name, last_name, branch_id, is_active').eq('role', 'receptionist'),
+      ]);
+      if (branchError) throw branchError;
+      if (receptionistError) throw receptionistError;
+
+      return (branchData || []).map((branch: any) => ({
+        ...branch,
+        receptionist: (receptionistData || []).find((user: any) => user.is_active !== false && user.branch_id === branch.id) || null,
+      }));
+    },
   });
 
   const handleCreate = async () => {
@@ -38,6 +57,11 @@ export default function CreateStaffScreen() {
 
     if (role === 'doctor' && (!formData.license || !formData.fee)) {
       Alert.alert('Error', 'Los doctores requieren cédula profesional y costo de consulta');
+      return;
+    }
+
+    if (role === 'receptionist' && !formData.branchId) {
+      Alert.alert('Error', 'Selecciona la sucursal donde trabajara la recepcionista');
       return;
     }
 
@@ -58,6 +82,7 @@ export default function CreateStaffScreen() {
             last_name: formData.lastName,
             phone: formData.phone,
             role: role,
+            branch_id: role === 'receptionist' ? formData.branchId : null,
           }
         }
       });
@@ -85,7 +110,8 @@ export default function CreateStaffScreen() {
           last_name: formData.lastName,
           email: formData.email,
           phone: formData.phone,
-          is_active: true
+          is_active: true,
+          branch_id: role === 'receptionist' ? formData.branchId : null,
         });
       
       if (profileError) throw profileError;
@@ -209,6 +235,32 @@ export default function CreateStaffScreen() {
             </View>
           )}
 
+          {role === 'receptionist' && (
+            <View style={[styles.section, styles.branchSection]}>
+              <Text style={[styles.sectionTitle, { color: Colors.primary }]}>Sucursal de Recepcion</Text>
+              <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.branchList}>
+                {(branches || []).map((branch: any) => {
+                  const disabled = branch.status === 'suspended' || !!branch.receptionist;
+                  const selected = formData.branchId === branch.id;
+                  return (
+                    <TouchableOpacity
+                      key={branch.id}
+                      style={[styles.branchChip, selected && styles.branchChipActive, disabled && styles.branchChipDisabled]}
+                      disabled={disabled}
+                      onPress={() => setFormData({ ...formData, branchId: branch.id })}
+                    >
+                      <Ionicons name={selected ? 'checkmark-circle' : 'business-outline'} size={16} color={selected ? 'white' : Colors.textMuted} />
+                      <Text style={[styles.branchChipText, selected && styles.branchChipTextActive]}>{branch.name}</Text>
+                      <Text style={[styles.branchChipMeta, selected && styles.branchChipTextActive]}>
+                        {branch.receptionist ? 'Ocupada' : branch.status === 'suspended' ? 'Suspendida' : 'Disponible'}
+                      </Text>
+                    </TouchableOpacity>
+                  );
+                })}
+              </ScrollView>
+            </View>
+          )}
+
           <TouchableOpacity 
             style={[styles.createBtn, loading && styles.disabledBtn]} 
             onPress={handleCreate}
@@ -269,6 +321,14 @@ const styles = StyleSheet.create({
   specialtyChipActive: { backgroundColor: Colors.secondary, borderColor: Colors.secondary },
   specialtyText: { fontSize: 12, fontWeight: '700', color: Colors.textSecondary },
   specialtyTextActive: { color: 'white' },
+  branchSection: { backgroundColor: '#f8fafc', padding: Spacing.md, borderRadius: BorderRadius.lg, borderWidth: 1, borderColor: '#e2e8f0' },
+  branchList: { flexDirection: 'row', marginTop: 4 },
+  branchChip: { width: 150, minHeight: 86, justifyContent: 'center', gap: 6, padding: 12, borderRadius: BorderRadius.lg, backgroundColor: Colors.surface, marginRight: 10, borderWidth: 1, borderColor: Colors.border },
+  branchChipActive: { backgroundColor: Colors.primary, borderColor: Colors.primary },
+  branchChipDisabled: { opacity: 0.45 },
+  branchChipText: { fontSize: 13, fontWeight: '800', color: Colors.primary },
+  branchChipMeta: { fontSize: 11, fontWeight: '700', color: Colors.textMuted },
+  branchChipTextActive: { color: 'white' },
   createBtn: { 
     backgroundColor: Colors.secondary, padding: Spacing.md, borderRadius: BorderRadius.lg,
     flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8,

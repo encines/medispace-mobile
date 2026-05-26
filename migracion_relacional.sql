@@ -76,6 +76,13 @@ CREATE TABLE IF NOT EXISTS public.branches (
     status VARCHAR(20) DEFAULT 'active'
 );
 
+ALTER TABLE public.profiles
+ADD COLUMN IF NOT EXISTS branch_id UUID REFERENCES public.branches(id) ON DELETE SET NULL;
+
+CREATE UNIQUE INDEX IF NOT EXISTS unique_active_receptionist_per_branch
+ON public.profiles (branch_id)
+WHERE role = 'receptionist' AND is_active = TRUE AND branch_id IS NOT NULL;
+
 -- Offices
 CREATE TABLE IF NOT EXISTS public.offices (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -282,12 +289,26 @@ CREATE POLICY "Appointments are visible to owners and staff" ON public.appointme
     FOR SELECT USING (
         auth.uid() = patient_id OR 
         auth.uid() = doctor_id OR 
-        (SELECT role FROM public.profiles WHERE id = auth.uid()) IN ('admin', 'receptionist')
+        (SELECT role FROM public.profiles WHERE id = auth.uid()) = 'admin' OR
+        (
+            (SELECT role FROM public.profiles WHERE id = auth.uid()) = 'receptionist'
+            AND office_id IN (
+                SELECT id FROM public.offices
+                WHERE branch_id = (SELECT branch_id FROM public.profiles WHERE id = auth.uid())
+            )
+        )
     );
 
 CREATE POLICY "Appointments can be updated by owners and staff" ON public.appointments
     FOR UPDATE USING (
         auth.uid() = patient_id OR 
         auth.uid() = doctor_id OR 
-        (SELECT role FROM public.profiles WHERE id = auth.uid()) IN ('admin', 'receptionist')
+        (SELECT role FROM public.profiles WHERE id = auth.uid()) = 'admin' OR
+        (
+            (SELECT role FROM public.profiles WHERE id = auth.uid()) = 'receptionist'
+            AND office_id IN (
+                SELECT id FROM public.offices
+                WHERE branch_id = (SELECT branch_id FROM public.profiles WHERE id = auth.uid())
+            )
+        )
     );

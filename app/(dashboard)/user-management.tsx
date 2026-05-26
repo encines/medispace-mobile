@@ -1,5 +1,5 @@
 import { useState, useCallback, useMemo, memo } from 'react';
-import { View, Text, StyleSheet, FlatList, TouchableOpacity, ActivityIndicator, Alert, RefreshControl, Image, TextInput } from 'react-native';
+import { View, Text, StyleSheet, FlatList, TouchableOpacity, ActivityIndicator, Alert, RefreshControl, Image, TextInput, Modal, ScrollView } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
@@ -14,28 +14,44 @@ export default function BentoUserManagementScreen() {
   const queryClient = useQueryClient();
   const [filter, setFilter] = useState<'all' | 'doctor' | 'receptionist'>('all');
   const [searchQuery, setSearchQuery] = useState('');
+  const [assigningUser, setAssigningUser] = useState<any>(null);
+  const [selectedBranchId, setSelectedBranchId] = useState<string | null>(null);
 
   const { data: users, isLoading, refetch } = useQuery({
     queryKey: ['admin-staff-users-bento'],
     queryFn: async () => {
       const { data: profilesResult, error: pError } = await supabase
         .from('profiles')
-        .select('id, first_name, last_name, phone, avatar_url, is_active, role')
+        .select('id, first_name, last_name, phone, avatar_url, is_active, role, branch_id, branches(name)')
         .order('first_name');
       
       if (pError) throw pError;
 
       return (profilesResult || [])
-        .map(u => ({
+        .map((u: any) => ({
           user_id: u.id,
           first_name: u.first_name,
           last_name: u.last_name,
           phone: u.phone,
           avatar_url: u.avatar_url,
           is_active: u.is_active,
+          branch_id: u.branch_id,
+          branch_name: Array.isArray(u.branches) ? u.branches[0]?.name : u.branches?.name,
           roles: [u.role]
         }))
         .filter(u => u.roles.some((r: any) => r !== 'patient'));
+    },
+  });
+
+  const { data: branches } = useQuery({
+    queryKey: ['admin-branches-list'],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from('branches')
+        .select('id, name, status')
+        .order('name');
+      if (error) throw error;
+      return data || [];
     },
   });
 
@@ -50,6 +66,37 @@ export default function BentoUserManagementScreen() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['admin-staff-users-bento'] });
       Alert.alert('Éxito', 'Estado actualizado');
+    },
+    onError: (err: any) => Alert.alert('Error', err.message),
+  });
+
+  const assignBranchMutation = useMutation({
+    mutationFn: async ({ userId, branchId }: { userId: string; branchId: string }) => {
+      const alreadyAssigned = (users || []).find((u: any) =>
+        u.user_id !== userId &&
+        u.roles.includes('receptionist') &&
+        u.is_active !== false &&
+        u.branch_id === branchId
+      );
+
+      if (alreadyAssigned) {
+        throw new Error(`La sucursal ya tiene recepcionista: ${alreadyAssigned.first_name} ${alreadyAssigned.last_name}`);
+      }
+
+      const { error } = await supabase
+        .from('profiles')
+        .update({ branch_id: branchId })
+        .eq('id', userId)
+        .eq('role', 'receptionist');
+      if (error) throw error;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['admin-staff-users-bento'] });
+      queryClient.invalidateQueries({ queryKey: ['admin-branches-bento'] });
+      queryClient.invalidateQueries({ queryKey: ['upcoming-appointments'] });
+      setAssigningUser(null);
+      setSelectedBranchId(null);
+      Alert.alert('Exito', 'Sucursal asignada');
     },
     onError: (err: any) => Alert.alert('Error', err.message),
   });
@@ -91,6 +138,14 @@ export default function BentoUserManagementScreen() {
                 </View>
               ))}
             </View>
+            {item.roles.includes('receptionist') && (
+              <View style={styles.branchLine}>
+                <Ionicons name="business-outline" size={13} color={item.branch_id ? Colors.secondary : '#ef4444'} />
+                <Text style={[styles.branchText, !item.branch_id && styles.branchTextMissing]} numberOfLines={1}>
+                  {item.branch_name || 'Sin sucursal asignada'}
+                </Text>
+              </View>
+            )}
           </View>
 
           {!isActive && (
@@ -130,6 +185,19 @@ export default function BentoUserManagementScreen() {
               {isActive ? 'Dar Baja' : 'Activar'}
             </Text>
           </TouchableOpacity>
+
+          {item.roles.includes('receptionist') && (
+            <TouchableOpacity
+              style={styles.assignBtn}
+              onPress={() => {
+                setAssigningUser(item);
+                setSelectedBranchId(item.branch_id || null);
+              }}
+            >
+              <Ionicons name="business-outline" size={16} color={Colors.primary} />
+              <Text style={styles.assignBtnText}>Sucursal</Text>
+            </TouchableOpacity>
+          )}
         </View>
       </View>
     );
@@ -209,6 +277,62 @@ export default function BentoUserManagementScreen() {
           }
         />
       )}
+
+      <Modal visible={!!assigningUser} transparent animationType="slide">
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalContent}>
+            <View style={styles.modalHeader}>
+              <View>
+                <Text style={styles.modalTitle}>Asignar sucursal</Text>
+                <Text style={styles.modalSubtitle}>{assigningUser?.first_name} {assigningUser?.last_name}</Text>
+              </View>
+              <TouchableOpacity onPress={() => setAssigningUser(null)}>
+                <Ionicons name="close" size={24} color={Colors.textMuted} />
+              </TouchableOpacity>
+            </View>
+
+            <ScrollView contentContainerStyle={styles.branchList}>
+              {(branches || []).map((branch: any) => {
+                const assignedTo = (users || []).find((u: any) =>
+                  u.user_id !== assigningUser?.user_id &&
+                  u.roles.includes('receptionist') &&
+                  u.is_active !== false &&
+                  u.branch_id === branch.id
+                );
+                const disabled = !!assignedTo || branch.status === 'suspended';
+                const selected = selectedBranchId === branch.id;
+
+                return (
+                  <TouchableOpacity
+                    key={branch.id}
+                    style={[styles.branchOption, selected && styles.branchOptionSelected, disabled && styles.branchOptionDisabled]}
+                    disabled={disabled}
+                    onPress={() => setSelectedBranchId(branch.id)}
+                  >
+                    <View style={styles.branchOptionIcon}>
+                      <Ionicons name={selected ? 'checkmark-circle' : 'business-outline'} size={20} color={selected ? Colors.secondary : Colors.textMuted} />
+                    </View>
+                    <View style={{ flex: 1 }}>
+                      <Text style={styles.branchOptionName}>{branch.name}</Text>
+                      <Text style={styles.branchOptionMeta}>
+                        {assignedTo ? `Ocupada por ${assignedTo.first_name} ${assignedTo.last_name}` : branch.status === 'suspended' ? 'Sucursal suspendida' : 'Disponible'}
+                      </Text>
+                    </View>
+                  </TouchableOpacity>
+                );
+              })}
+            </ScrollView>
+
+            <TouchableOpacity
+              style={[styles.saveBranchBtn, !selectedBranchId && styles.saveBranchBtnDisabled]}
+              disabled={!selectedBranchId || assignBranchMutation.isPending}
+              onPress={() => assignBranchMutation.mutate({ userId: assigningUser.user_id, branchId: selectedBranchId! })}
+            >
+              <Text style={styles.saveBranchBtnText}>{assignBranchMutation.isPending ? 'Guardando...' : 'Guardar asignacion'}</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
     </SafeAreaView>
   );
 }
@@ -254,17 +378,37 @@ const styles = StyleSheet.create({
   badgeRow: { flexDirection: 'row', gap: 6, marginTop: 4 },
   roleBadge: { paddingHorizontal: 8, paddingVertical: 2, borderRadius: 6 },
   roleText: { fontSize: 10, fontWeight: '800', textTransform: 'uppercase' },
+  branchLine: { flexDirection: 'row', alignItems: 'center', gap: 5, marginTop: 6 },
+  branchText: { flex: 1, fontSize: 12, fontWeight: '700', color: Colors.secondary },
+  branchTextMissing: { color: '#ef4444' },
   inactiveTag: { backgroundColor: '#fee2e2', paddingHorizontal: 10, paddingVertical: 4, borderRadius: 8 },
   inactiveTagText: { color: '#ef4444', fontSize: 10, fontWeight: '900' },
   cardFooter: { 
-    flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center',
+    flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', gap: 8, flexWrap: 'wrap',
     borderTopWidth: 1, borderTopColor: '#f1f5f9', marginTop: Spacing.md, paddingTop: Spacing.md,
   },
   phoneGroup: { flexDirection: 'row', alignItems: 'center', gap: 6 },
   phoneText: { fontSize: 12, color: Colors.textMuted, fontWeight: '600' },
   statusBtn: { flexDirection: 'row', alignItems: 'center', gap: 6, borderWidth: 1, paddingHorizontal: 12, paddingVertical: 6, borderRadius: 10 },
   statusBtnText: { fontSize: 12, fontWeight: '800' },
+  assignBtn: { flexDirection: 'row', alignItems: 'center', gap: 6, borderWidth: 1, borderColor: Colors.primary, paddingHorizontal: 12, paddingVertical: 6, borderRadius: 10 },
+  assignBtnText: { fontSize: 12, fontWeight: '800', color: Colors.primary },
   center: { flex: 1, justifyContent: 'center', alignItems: 'center' },
   emptyState: { alignItems: 'center', marginTop: 100 },
   emptyText: { color: Colors.textMuted, fontWeight: '600', marginTop: 10 },
+  modalOverlay: { flex: 1, backgroundColor: 'rgba(15, 23, 42, 0.45)', justifyContent: 'flex-end' },
+  modalContent: { backgroundColor: 'white', borderTopLeftRadius: 24, borderTopRightRadius: 24, padding: Spacing.lg, maxHeight: '80%' },
+  modalHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: Spacing.md },
+  modalTitle: { fontSize: 20, fontWeight: '900', color: Colors.primary },
+  modalSubtitle: { fontSize: 13, color: Colors.textMuted, fontWeight: '700', marginTop: 2 },
+  branchList: { gap: 10, paddingBottom: Spacing.md },
+  branchOption: { flexDirection: 'row', alignItems: 'center', gap: 12, padding: 14, borderRadius: 14, borderWidth: 1, borderColor: '#e2e8f0', backgroundColor: '#f8fafc' },
+  branchOptionSelected: { borderColor: Colors.secondary, backgroundColor: '#f0fdf4' },
+  branchOptionDisabled: { opacity: 0.45 },
+  branchOptionIcon: { width: 28, alignItems: 'center' },
+  branchOptionName: { fontSize: 15, fontWeight: '800', color: Colors.primary },
+  branchOptionMeta: { fontSize: 12, fontWeight: '700', color: Colors.textMuted, marginTop: 2 },
+  saveBranchBtn: { backgroundColor: Colors.secondary, alignItems: 'center', padding: 14, borderRadius: 16 },
+  saveBranchBtnDisabled: { opacity: 0.5 },
+  saveBranchBtnText: { color: 'white', fontSize: 14, fontWeight: '900' },
 });

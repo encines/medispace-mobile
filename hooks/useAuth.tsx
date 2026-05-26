@@ -24,6 +24,7 @@ interface Profile {
   emergency_contact_name: string | null;
   emergency_contact_phone: string | null;
   avatar_url: string | null;
+  branch_id: string | null;
 }
 
   interface AuthContextType {
@@ -154,6 +155,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
           allergies: null,
           emergency_contact_name: null,
           emergency_contact_phone: null,
+          branch_id: userData.branch_id || null,
         };
 
         // Fetch details based on role

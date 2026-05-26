@@ -81,7 +81,7 @@ export default function DoctorDashboard() {
       </View>
 
       <View style={styles.sectionHeader}>
-        <Text style={styles.sectionTitle}>Próximas Citas</Text>
+        <Text style={styles.sectionTitle}>Citas de Hoy</Text>
         <TouchableOpacity onPress={() => router.push('/(dashboard)/appointments')}>
           <Text style={styles.viewAllText}>Ver todas</Text>
         </TouchableOpacity>

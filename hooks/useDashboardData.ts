@@ -1,7 +1,7 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '../lib/supabase';
 import { useAuth } from './useAuth';
-import { format } from 'date-fns';
+import { endOfDay, format, startOfDay } from 'date-fns';
 import { useRouter } from 'expo-router';
 import { Alert } from 'react-native';
 
@@ -77,40 +77,73 @@ export function useUpcomingAppointments(role: 'doctor' | 'patient' | 'receptioni
     queryKey: ['upcoming-appointments', role, user?.id],
     queryFn: async () => {
       if (!user?.id && role !== 'receptionist') return [];
+
+      let receptionistOfficeIds: string[] = [];
+      if (role === 'receptionist') {
+        if (!user?.id) return [];
+
+        const { data: receptionistProfile } = await supabase
+          .from('profiles')
+          .select('branch_id')
+          .eq('id', user.id)
+          .single();
+
+        if (!receptionistProfile?.branch_id) return [];
+
+        const { data: branchOffices, error: officesError } = await supabase
+          .from('offices')
+          .select('id')
+          .eq('branch_id', receptionistProfile.branch_id);
+
+        if (officesError || !branchOffices?.length) return [];
+        receptionistOfficeIds = branchOffices.map(office => office.id);
+      }
       
-      const today = format(new Date(), 'yyyy-MM-dd');
+      const today = new Date();
       let query = supabase
         .from('appointments')
         .select('*')
-        .gte('start_time', today)
+        .gte('start_time', role === 'doctor' ? startOfDay(today).toISOString() : format(today, 'yyyy-MM-dd'))
         .in('status', ['scheduled', 'confirmed', 'arrived'])
         .order('start_time', { ascending: true })
         .limit(10);
+
+      if (role === 'doctor') {
+        query = query.lte('start_time', endOfDay(today).toISOString());
+      }
 
       if (role === 'patient') {
         query = query.eq('patient_id', user!.id);
       } else if (role === 'doctor') {
         query = query.eq('doctor_id', user!.id);
+      } else if (role === 'receptionist') {
+        query = query.in('office_id', receptionistOfficeIds);
       }
 
       const { data: appointments, error } = await query;
       if (error || !appointments?.length) return [];
 
-      const targetRole = role === 'patient' ? 'doctor' : 'patient';
       const targetIds = Array.from(new Set(appointments.map(a => 
         role === 'patient' ? a.doctor_id : a.patient_id
       )));
+      const doctorIds = role === 'receptionist'
+        ? Array.from(new Set(appointments.map(a => a.doctor_id)))
+        : [];
+      const profileIds = Array.from(new Set([...targetIds, ...doctorIds]));
 
       const { data: profilesResult } = await supabase
         .from('profiles')
         .select('id, first_name, last_name, avatar_url')
-        .in('id', targetIds);
+        .in('id', profileIds);
 
       const profiles = profilesResult?.map(u => ({ user_id: u.id, first_name: u.first_name, last_name: u.last_name, avatar_url: u.avatar_url })) || [];
 
       const mapped = appointments.map(apt => ({
         ...apt,
-        counterparty: profiles?.find(p => p.user_id === (role === 'patient' ? apt.doctor_id : apt.patient_id)) || null
+        counterparty: profiles?.find(p => p.user_id === (role === 'patient' ? apt.doctor_id : apt.patient_id)) || null,
+        doctorProfile: role === 'receptionist'
+          ? profiles?.find(p => p.user_id === apt.doctor_id) || null
+          : null,
       }));
 
       return mapped.sort((a, b) => new Date(a.start_time).getTime() - new Date(b.start_time).getTime());

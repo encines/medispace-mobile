@@ -27,6 +27,10 @@ export default function AppointmentsScreen() {
   const [ratingScore, setRatingScore] = useState(5);
   const [ratingComment, setRatingComment] = useState('');
   const [searchQuery, setSearchQuery] = useState('');
+  const [cancelModalVisible, setCancelModalVisible] = useState(false);
+  const [appointmentToCancel, setAppointmentToCancel] = useState<any>(null);
+  const [cancelReason, setCancelReason] = useState('');
+  const [appointmentView, setAppointmentView] = useState<'active' | 'cancelled' | 'completed'>('active');
 
   const { data: appointments, isLoading, refetch } = useQuery({
     queryKey: ['patient-appointments', user?.id],
@@ -38,6 +42,22 @@ export default function AppointmentsScreen() {
 
       if (isDoctor) {
         query = query.eq('doctor_id', user!.id);
+      } else if (isReceptionist) {
+        const { data: receptionistProfile } = await supabase
+          .from('profiles')
+          .select('branch_id')
+          .eq('id', user!.id)
+          .single();
+
+        if (!receptionistProfile?.branch_id) return [];
+
+        const { data: branchOffices, error: officesError } = await supabase
+          .from('offices')
+          .select('id')
+          .eq('branch_id', receptionistProfile.branch_id);
+
+        if (officesError || !branchOffices?.length) return [];
+        query = query.in('office_id', branchOffices.map(office => office.id));
       } else if (!isStaff) {
         query = query.eq('patient_id', user!.id);
       }
@@ -156,7 +176,7 @@ export default function AppointmentsScreen() {
         .from('appointments')
         .update({ 
           status: 'cancelled',
-          notes: notes || (isStaff ? 'Cancelada por recepcionista' : 'Cancelada por el paciente')
+          notes: notes || 'Cancelada por parte del paciente'
         })
         .eq('id', appointmentId);
       if (error) throw error;
@@ -164,6 +184,9 @@ export default function AppointmentsScreen() {
     onSuccess: () => {
       Toast.show({ type: 'success', text1: 'Cita cancelada' });
       queryClient.invalidateQueries({ queryKey: ['patient-appointments'] });
+      setCancelModalVisible(false);
+      setAppointmentToCancel(null);
+      setCancelReason('');
     },
     onError: (err: any) => Toast.show({ type: 'error', text1: 'Error', text2: err.message }),
   });
@@ -180,6 +203,14 @@ export default function AppointmentsScreen() {
   const handleCancel = (apt: any) => {
     const refundable = isRefundable(apt.start_time);
     const patientName = apt.patient_profile ? `${apt.patient_profile.first_name} ${apt.patient_profile.last_name}` : 'del paciente';
+    const requiresReason = isDoctor || isReceptionist || isAdmin;
+    
+    if (requiresReason) {
+      setAppointmentToCancel(apt);
+      setCancelReason('');
+      setCancelModalVisible(true);
+      return;
+    }
     
     if (refundable) {
       Alert.alert(
@@ -194,7 +225,7 @@ export default function AppointmentsScreen() {
             style: 'destructive', 
             onPress: () => cancelMutation.mutate({ 
               appointmentId: apt.id, 
-              notes: 'REEMBOLSO_100 - Cancelación con más de 24h' 
+              notes: 'Cancelada por parte del paciente' 
             }) 
           },
         ]
@@ -212,12 +243,32 @@ export default function AppointmentsScreen() {
             style: 'destructive', 
             onPress: () => cancelMutation.mutate({ 
               appointmentId: apt.id, 
-              notes: 'PENALIZACION_50 - Cancelación en menos de 24h' 
+              notes: 'Cancelacion por parte del paciente en menos de 24hrs' 
             }) 
           },
         ]
       );
     }
+  };
+
+  const confirmStaffCancellation = () => {
+    const reason = cancelReason.trim();
+    if (!appointmentToCancel) return;
+    if (!reason) {
+      Toast.show({ type: 'error', text1: 'Motivo requerido', text2: 'Escribe por que se cancela la cita.' });
+      return;
+    }
+
+    const cancelledBy = isDoctor ? 'doctor' : 'recepcionista';
+    cancelMutation.mutate({
+      appointmentId: appointmentToCancel.id,
+      notes: `Cancelada por ${cancelledBy}. Motivo: ${reason}`
+    });
+  };
+
+  const getCancellationReason = (notes?: string | null) => {
+    if (!notes) return null;
+    return notes.replace(/^PENALIZACION_50\s*-\s*/i, '').replace(/^REEMBOLSO_100\s*-\s*/i, '');
   };
 
   const statusMutation = useMutation({
@@ -265,9 +316,16 @@ export default function AppointmentsScreen() {
     return patientName.includes(q) || doctorName.includes(q);
   }) || [];
 
-  const upcoming = (filteredAppointments.filter(a => ['scheduled', 'confirmed', 'arrived'].includes(a.status)) || [])
+  const activeAppointments = (filteredAppointments.filter(a => ['scheduled', 'confirmed', 'arrived'].includes(a.status)) || [])
     .sort((a, b) => new Date(a.start_time).getTime() - new Date(b.start_time).getTime());
-  const past = filteredAppointments.filter(a => ['completed', 'cancelled'].includes(a.status)) || [];
+  const cancelledAppointments = filteredAppointments.filter(a => a.status === 'cancelled') || [];
+  const completedAppointments = filteredAppointments.filter(a => a.status === 'completed') || [];
+  const historicalAppointments = appointmentView === 'cancelled' ? cancelledAppointments : completedAppointments;
+  const appointmentViewOptions = [
+    { key: 'active' as const, label: 'Programadas', count: activeAppointments.length },
+    { key: 'cancelled' as const, label: 'Canceladas', count: cancelledAppointments.length },
+    { key: 'completed' as const, label: 'Completadas', count: completedAppointments.length },
+  ];
 
   return (
     <SafeAreaView style={styles.container}>
@@ -296,20 +354,43 @@ export default function AppointmentsScreen() {
         }
       >
         <Text style={styles.title}>{isStaff ? 'Citas' : 'Mis Citas'}</Text>
+        <View style={styles.viewTabs}>
+          {appointmentViewOptions.map(option => {
+            const selected = appointmentView === option.key;
+            return (
+              <TouchableOpacity
+                key={option.key}
+                style={[styles.viewTab, selected && styles.viewTabActive]}
+                onPress={() => setAppointmentView(option.key)}
+              >
+                <Text style={[styles.viewTabText, selected && styles.viewTabTextActive]}>
+                  {option.label}
+                </Text>
+                <View style={[styles.viewTabCount, selected && styles.viewTabCountActive]}>
+                  <Text style={[styles.viewTabCountText, selected && styles.viewTabCountTextActive]}>
+                    {option.count}
+                  </Text>
+                </View>
+              </TouchableOpacity>
+            );
+          })}
+        </View>
 
         {isLoading ? (
           <ActivityIndicator size="large" color={Colors.secondary} style={{ marginTop: Spacing.xxl }} />
         ) : (
           <>
             {/* Upcoming */}
-            <Text style={styles.sectionTitle}>Próximas</Text>
-            {upcoming.length === 0 ? (
+            {appointmentView === 'active' && (
+              <>
+            <Text style={styles.sectionTitle}>Programadas / confirmadas</Text>
+            {activeAppointments.length === 0 ? (
               <View style={styles.emptyState}>
                 <Ionicons name="calendar-outline" size={40} color={Colors.textMuted} />
                 <Text style={styles.emptyText}>{isStaff ? 'No hay citas pendientes' : 'No tienes citas pendientes'}</Text>
               </View>
             ) : (
-              upcoming.map((apt: any) => {
+              activeAppointments.map((apt: any) => {
                 const status = getStatusInfo(apt.status, apt.start_time);
                 const late = isLate(apt.start_time);
                 return (
@@ -390,13 +471,25 @@ export default function AppointmentsScreen() {
                 );
               })
             )}
+              </>
+            )}
 
             {/* Past */}
-            {past.length > 0 && (
+            {appointmentView !== 'active' && (
               <>
-                <Text style={[styles.sectionTitle, { marginTop: Spacing.lg }]}>Historial</Text>
-                {past.map((apt: any) => {
+                <Text style={styles.sectionTitle}>{appointmentView === 'cancelled' ? 'Canceladas' : 'Completadas'}</Text>
+                {historicalAppointments.length === 0 ? (
+                  <View style={styles.emptyState}>
+                    <Ionicons name={appointmentView === 'cancelled' ? 'close-circle-outline' : 'checkmark-done-circle-outline'} size={40} color={Colors.textMuted} />
+                    <Text style={styles.emptyText}>
+                      {appointmentView === 'cancelled'
+                        ? (isStaff ? 'No hay citas canceladas' : 'No tienes citas canceladas')
+                        : (isStaff ? 'No hay citas completadas' : 'No tienes citas completadas')}
+                    </Text>
+                  </View>
+                ) : historicalAppointments.map((apt: any) => {
                   const status = getStatusInfo(apt.status, apt.start_time);
+                  const cancellationReason = apt.status === 'cancelled' ? getCancellationReason(apt.notes) : null;
                   return (
                     <View key={apt.id} style={[styles.card, { opacity: 0.7 }]}>
                       <View style={styles.cardHeader}>
@@ -414,6 +507,24 @@ export default function AppointmentsScreen() {
                         )}
                         {!isStaff && `${apt.profiles?.first_name} ${apt.profiles?.last_name}`}
                       </Text>
+                      {cancellationReason && (
+                        <View style={styles.cancellationReason}>
+                          <Ionicons name="information-circle-outline" size={14} color={Colors.error} />
+                          <Text style={styles.cancellationReasonText}>{cancellationReason}</Text>
+                        </View>
+                      )}
+                      {apt.status === 'cancelled' && (isDoctor || isStaff) && apt.patient_profile?.phone && (
+                        <View style={styles.patientInfo}>
+                          <Ionicons name="call-outline" size={12} color={Colors.textSecondary} />
+                          <Text style={styles.cardSpecialty}>{apt.patient_profile.phone}</Text>
+                        </View>
+                      )}
+                      {apt.status === 'cancelled' && !isDoctor && !isStaff && apt.offices?.branches?.name && (
+                        <View style={styles.locationContainer}>
+                          <Ionicons name="business-outline" size={14} color={Colors.secondary} />
+                          <Text style={styles.locationText}>{apt.offices.branches.name}</Text>
+                        </View>
+                      )}
                       {isStaff && (
                         <>
                           <View style={styles.patientInfo}>
@@ -463,6 +574,49 @@ export default function AppointmentsScreen() {
           </>
         )}
       </ScrollView>
+
+      {/* Cancel Reason Modal */}
+      <Modal visible={cancelModalVisible} transparent animationType="slide">
+        <View style={styles.modalBg}>
+          <KeyboardAvoidingView 
+            behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+            style={{ width: '100%' }}
+          >
+            <View style={styles.modalContent}>
+              <Text style={styles.modalTitle}>Motivo de cancelacion</Text>
+              <Text style={styles.modalSub}>Indica por que se cancela la cita antes de confirmar.</Text>
+              <TextInput 
+                style={styles.commentInput}
+                placeholder="Escribe el motivo..."
+                placeholderTextColor={Colors.textMuted}
+                multiline
+                value={cancelReason}
+                onChangeText={setCancelReason}
+                numberOfLines={4}
+              />
+              <View style={styles.modalButtons}>
+                <TouchableOpacity 
+                  style={styles.cancelLink} 
+                  onPress={() => {
+                    setCancelModalVisible(false);
+                    setAppointmentToCancel(null);
+                    setCancelReason('');
+                  }}
+                >
+                  <Text style={styles.cancelLinkText}>Volver</Text>
+                </TouchableOpacity>
+                <TouchableOpacity 
+                  style={styles.dangerSubmitBtn} 
+                  onPress={confirmStaffCancellation}
+                  disabled={cancelMutation.isPending}
+                >
+                  {cancelMutation.isPending ? <ActivityIndicator color="white" size="small" /> : <Text style={styles.submitBtnText}>Cancelar cita</Text>}
+                </TouchableOpacity>
+              </View>
+            </View>
+          </KeyboardAvoidingView>
+        </View>
+      </Modal>
 
       {/* Rating Modal */}
       <Modal visible={ratingModalVisible} transparent animationType="slide">
@@ -519,6 +673,15 @@ const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: Colors.background },
   content: { padding: Spacing.lg },
   title: { fontSize: FontSizes.xxl, fontWeight: '800', color: Colors.primary, marginBottom: Spacing.lg },
+  viewTabs: { flexDirection: 'row', backgroundColor: '#f1f5f9', borderRadius: BorderRadius.lg, padding: 4, marginBottom: Spacing.lg, gap: 4 },
+  viewTab: { flex: 1, minHeight: 42, borderRadius: BorderRadius.md, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 6, gap: 4 },
+  viewTabActive: { backgroundColor: Colors.surface, borderWidth: 1, borderColor: Colors.border },
+  viewTabText: { fontSize: FontSizes.xs, fontWeight: '800', color: Colors.textMuted, textAlign: 'center' },
+  viewTabTextActive: { color: Colors.primary },
+  viewTabCount: { minWidth: 20, height: 20, borderRadius: 10, alignItems: 'center', justifyContent: 'center', backgroundColor: '#e2e8f0', paddingHorizontal: 6 },
+  viewTabCountActive: { backgroundColor: Colors.secondary },
+  viewTabCountText: { fontSize: 10, fontWeight: '800', color: Colors.textSecondary },
+  viewTabCountTextActive: { color: 'white' },
   sectionTitle: { fontSize: FontSizes.lg, fontWeight: '700', color: Colors.primary, marginBottom: Spacing.md },
   card: {
     backgroundColor: Colors.surface, padding: Spacing.md, borderRadius: BorderRadius.lg,
@@ -569,11 +732,14 @@ const styles = StyleSheet.create({
   commentInput: { backgroundColor: '#f8fafc', borderRadius: BorderRadius.lg, padding: Spacing.md, fontSize: FontSizes.md, color: Colors.text, height: 100, textAlignVertical: 'top', borderWidth: 1, borderColor: Colors.border },
   modalButtons: { flexDirection: 'row', marginTop: Spacing.xl, alignItems: 'center', gap: Spacing.lg },
   submitBtn: { flex: 2, backgroundColor: Colors.secondary, paddingVertical: 14, borderRadius: BorderRadius.lg, alignItems: 'center', shadowColor: Colors.secondary, shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.3, shadowRadius: 8, elevation: 4 },
+  dangerSubmitBtn: { flex: 2, backgroundColor: Colors.error, paddingVertical: 14, borderRadius: BorderRadius.lg, alignItems: 'center', shadowColor: Colors.error, shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.25, shadowRadius: 8, elevation: 4 },
   submitBtnText: { color: 'white', fontWeight: '800', fontSize: FontSizes.md },
   cancelLink: { flex: 1, alignItems: 'center' },
   cancelLinkText: { color: Colors.textMuted, fontWeight: '700', fontSize: FontSizes.sm },
   locationContainer: { flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 8, backgroundColor: '#f0f9ff', padding: 8, borderRadius: 8, alignSelf: 'flex-start' },
   locationText: { fontSize: 12, fontWeight: '700', color: '#0369a1' },
+  cancellationReason: { flexDirection: 'row', alignItems: 'flex-start', gap: 6, marginTop: 8, backgroundColor: '#fef2f2', borderWidth: 1, borderColor: '#fee2e2', padding: 8, borderRadius: 8 },
+  cancellationReasonText: { flex: 1, fontSize: 12, fontWeight: '700', color: Colors.error },
   
   // Search Styles
   searchHeader: { backgroundColor: 'white', paddingHorizontal: Spacing.lg, paddingVertical: Spacing.md, borderBottomWidth: 1, borderBottomColor: Colors.border },

@@ -5,6 +5,7 @@ import { useRouter, useLocalSearchParams } from 'expo-router';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { Ionicons } from '@expo/vector-icons';
 import { format } from 'date-fns';
+import { es } from 'date-fns/locale';
 import DateTimePicker from '@react-native-community/datetimepicker';
 import { useAuth } from '../../hooks/useAuth';
 import { supabase } from '../../lib/supabase';
@@ -74,10 +75,9 @@ export default function GlobalAssignmentsScreen() {
   const [showTimePicker, setShowTimePicker] = useState<'start' | 'end' | null>(null);
   const [blockModalVisible, setBlockModalVisible] = useState(false);
   const [blockDate, setBlockDate] = useState(new Date());
-  const [blockStartTime, setBlockStartTime] = useState(new Date(new Date().setHours(9, 0, 0, 0)));
-  const [blockEndTime, setBlockEndTime] = useState(new Date(new Date().setHours(10, 0, 0, 0)));
   const [blockOfficeId, setBlockOfficeId] = useState<string | null>(null);
-  const [showBlockPicker, setShowBlockPicker] = useState<'date' | 'start' | 'end' | null>(null);
+  const [selectedBlockTimes, setSelectedBlockTimes] = useState<string[]>([]);
+  const [showBlockPicker, setShowBlockPicker] = useState(false);
 
   // 1. Fetch active doctors (Admins only)
   const { data: doctors } = useQuery({
@@ -167,6 +167,51 @@ export default function GlobalAssignmentsScreen() {
       return grouped;
     },
   });
+
+  const { data: doctorBlockedAppointments, refetch: refetchDoctorBlockedAppointments } = useQuery({
+    queryKey: ['doctor-blocked-appointments', user?.id],
+    enabled: !!isDoctor && !!user?.id,
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from('appointments')
+        .select('id, start_time, office_id')
+        .eq('doctor_id', user!.id)
+        .eq('status', 'blocked')
+        .gte('start_time', new Date().toISOString())
+        .order('start_time', { ascending: true });
+      if (error) throw error;
+      return data || [];
+    },
+  });
+
+  useEffect(() => {
+    if (!isDoctor || !user?.id || !doctorBlockedAppointments?.length) return;
+
+    const syncBlockedLocks = async () => {
+      const { data: existingLocks } = await supabase
+        .from('slot_locks')
+        .select('start_time')
+        .eq('doctor_id', user.id)
+        .eq('locked_by', user.id)
+        .gt('expires_at', new Date().toISOString());
+
+      const existingTimes = new Set((existingLocks || []).map((lock: any) => new Date(lock.start_time).getTime()));
+      const missingLocks = doctorBlockedAppointments
+        .filter((apt: any) => !existingTimes.has(new Date(apt.start_time).getTime()))
+        .map((apt: any) => ({
+          doctor_id: user.id,
+          start_time: apt.start_time,
+          locked_by: user.id,
+          expires_at: new Date('2099-12-31T23:59:59.000Z').toISOString(),
+        }));
+
+      if (missingLocks.length > 0) {
+        await supabase.from('slot_locks').insert(missingLocks);
+      }
+    };
+
+    syncBlockedLocks();
+  }, [doctorBlockedAppointments, isDoctor, user?.id]);
 
   const createAssignmentMutation = useMutation({
     mutationFn: async () => {
@@ -280,50 +325,133 @@ export default function GlobalAssignmentsScreen() {
     }
   }, [blockOfficeId, doctorOfficeOptions]);
 
+  useEffect(() => {
+    setSelectedBlockTimes([]);
+  }, [blockOfficeId, blockDate]);
+
+  const blockDateKey = format(blockDate, 'yyyy-MM-dd');
+  const blockDayOfWeek = new Date(`${blockDateKey}T12:00:00`).getDay();
+  const doctorDaySchedules = useMemo(() => {
+    if (!isDoctor || !assignments?.length || !blockOfficeId) return [];
+    const currentDoctorGroup = assignments.find((group: any) => group.id === user?.id);
+    return (currentDoctorGroup?.schedules || []).filter((schedule: any) => {
+      const isOfficeActive = schedule.offices?.status === 'active';
+      const isBranchActive = schedule.offices?.branches?.status === 'active';
+      return schedule.office_id === blockOfficeId
+        && schedule.day_of_week === blockDayOfWeek
+        && isOfficeActive
+        && isBranchActive;
+    });
+  }, [assignments, blockDayOfWeek, blockOfficeId, isDoctor, user?.id]);
+
+  const { data: doctorDayAppointments, isLoading: isLoadingBlocks } = useQuery({
+    queryKey: ['doctor-blocked-day', user?.id, blockDateKey],
+    enabled: !!isDoctor && !!user?.id && blockModalVisible,
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from('appointments')
+        .select('id, start_time, status, office_id')
+        .eq('doctor_id', user!.id)
+        .gte('start_time', new Date(`${blockDateKey}T00:00:00`).toISOString())
+        .lte('start_time', new Date(`${blockDateKey}T23:59:59`).toISOString())
+        .in('status', ['scheduled', 'confirmed', 'arrived', 'blocked']);
+      if (error) throw error;
+      return data || [];
+    },
+  });
+
+  const availableBlockSlots = useMemo(() => {
+    const slots: string[] = [];
+    const occupiedTimes = new Set(
+      (doctorDayAppointments || [])
+        .map((apt: any) => format(new Date(apt.start_time), 'HH:mm'))
+    );
+
+    doctorDaySchedules.forEach((schedule: any) => {
+      let [hour, minute] = schedule.start_time.split(':').map(Number);
+      const [endHour, endMinute] = schedule.end_time.split(':').map(Number);
+
+      while (hour < endHour || (hour === endHour && minute < endMinute)) {
+        const time = `${String(hour).padStart(2, '0')}:${String(minute).padStart(2, '0')}`;
+        const slotDate = new Date(`${blockDateKey}T${time}:00`);
+
+        if (slotDate.getTime() >= Date.now() && !occupiedTimes.has(time)) {
+          slots.push(time);
+        }
+
+        minute += BLOCK_STEP_MINUTES;
+        if (minute >= 60) {
+          hour += 1;
+          minute -= 60;
+        }
+      }
+    });
+
+    return Array.from(new Set(slots)).sort();
+  }, [blockDateKey, blockOfficeId, doctorDayAppointments, doctorDaySchedules]);
+
+  const blockedSlots = useMemo(() => {
+    return (doctorDayAppointments || [])
+      .filter((apt: any) => apt.status === 'blocked')
+      .map((apt: any) => ({
+        id: apt.id,
+        time: format(new Date(apt.start_time), 'HH:mm'),
+        office: doctorOfficeOptions.find((office: any) => office.id === apt.office_id)?.name || 'Consultorio',
+      }))
+      .sort((a: any, b: any) => a.time.localeCompare(b.time));
+  }, [doctorDayAppointments, doctorOfficeOptions]);
+
   const createBlockMutation = useMutation({
     mutationFn: async () => {
       if (!user?.id || !blockOfficeId) throw new Error('Selecciona un consultorio');
-
-      const dateKey = format(blockDate, 'yyyy-MM-dd');
-      const start = new Date(`${dateKey}T${format(blockStartTime, 'HH:mm')}:00`);
-      const end = new Date(`${dateKey}T${format(blockEndTime, 'HH:mm')}:00`);
-      if (end <= start) throw new Error('La hora final debe ser mayor a la inicial');
-      if (start.getTime() < Date.now()) throw new Error('No puedes bloquear horarios en el pasado');
+      if (selectedBlockTimes.length === 0) throw new Error('Selecciona al menos un bloque');
 
       const { data: existing, error: existingError } = await supabase
         .from('appointments')
         .select('start_time, status')
         .eq('doctor_id', user.id)
-        .gte('start_time', new Date(`${dateKey}T00:00:00`).toISOString())
-        .lte('start_time', new Date(`${dateKey}T23:59:59`).toISOString())
+        .gte('start_time', new Date(`${blockDateKey}T00:00:00`).toISOString())
+        .lte('start_time', new Date(`${blockDateKey}T23:59:59`).toISOString())
         .in('status', ['scheduled', 'confirmed', 'arrived', 'blocked']);
       if (existingError) throw existingError;
 
-      const rows: any[] = [];
-      for (let cursor = new Date(start); cursor < end; cursor = new Date(cursor.getTime() + BLOCK_STEP_MINUTES * 60000)) {
-        const alreadyTaken = existing?.some((apt: any) => new Date(apt.start_time).getTime() === cursor.getTime());
-        if (alreadyTaken) throw new Error(`Ya existe una cita o bloqueo a las ${format(cursor, 'HH:mm')}`);
-        rows.push({
+      const rows = selectedBlockTimes.map(time => {
+        const slotDate = new Date(`${blockDateKey}T${time}:00`);
+        if (slotDate.getTime() < Date.now()) throw new Error('No puedes bloquear horarios en el pasado');
+        const alreadyTaken = existing?.some((apt: any) => format(new Date(apt.start_time), 'HH:mm') === time);
+        if (alreadyTaken) throw new Error(`Ya existe una cita o bloqueo a las ${time}`);
+        return {
           patient_id: user.id,
           doctor_id: user.id,
           office_id: blockOfficeId,
-          start_time: cursor.toISOString(),
+          start_time: slotDate.toISOString(),
           status: 'blocked',
           total_price: 0,
           amount_paid: 0,
           payment_method: 'blocked',
           notes: 'Horario bloqueado por el doctor',
-        });
-      }
+        };
+      });
 
       const { error } = await supabase.from('appointments').insert(rows);
       if (error) throw error;
+
+      const locks = rows.map(row => ({
+        doctor_id: row.doctor_id,
+        start_time: row.start_time,
+        locked_by: row.doctor_id,
+        expires_at: new Date('2099-12-31T23:59:59.000Z').toISOString(),
+      }));
+      const { error: lockError } = await supabase.from('slot_locks').insert(locks);
+      if (lockError) throw lockError;
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['patient-appointments'] });
       queryClient.invalidateQueries({ queryKey: ['existing-appointments'] });
+      queryClient.invalidateQueries({ queryKey: ['doctor-blocked-day'] });
+      queryClient.invalidateQueries({ queryKey: ['doctor-blocked-appointments'] });
       Toast.show({ type: 'success', text1: 'Horario bloqueado' });
-      setBlockModalVisible(false);
+      setSelectedBlockTimes([]);
     },
     onError: (err: any) => Alert.alert('Error', err.message),
   });
@@ -417,6 +545,38 @@ export default function GlobalAssignmentsScreen() {
     return docMatch || branchMatch;
   }) || [], [assignments, searchQuery]);
 
+  const renderDoctorBlockedSection = () => {
+    if (!isDoctor) return null;
+
+    return (
+      <View style={styles.mainBlockedSection}>
+        <Text style={styles.mainBlockedTitle}>Horarios bloqueados</Text>
+        {doctorBlockedAppointments?.length ? (
+          <View style={styles.mainBlockedList}>
+            {doctorBlockedAppointments.map((apt: any) => {
+              const office = doctorOfficeOptions.find((item: any) => item.id === apt.office_id);
+              return (
+                <View key={apt.id} style={styles.mainBlockedRow}>
+                  <Ionicons name="ban-outline" size={16} color="#dc2626" />
+                  <View style={{ flex: 1 }}>
+                    <Text style={styles.mainBlockedDate}>
+                      {format(new Date(apt.start_time), "d 'de' MMMM 'del' yyyy", { locale: es })}
+                    </Text>
+                    <Text style={styles.mainBlockedHour}>
+                      {format(new Date(apt.start_time), "HH:mm")} hrs{office?.name ? ` · ${office.name}` : ''}
+                    </Text>
+                  </View>
+                </View>
+              );
+            })}
+          </View>
+        ) : (
+          <Text style={styles.emptyInlineText}>No tienes horarios bloqueados.</Text>
+        )}
+      </View>
+    );
+  };
+
   return (
     <SafeAreaView style={styles.container}>
       <View style={styles.header}>
@@ -433,7 +593,7 @@ export default function GlobalAssignmentsScreen() {
       </View>
       
       {/* Search Bar */}
-      <View style={styles.searchSection}>
+      <View style={[styles.searchSection, isDoctor && { display: 'none' }]}>
         <View style={styles.searchContainer}>
           <Ionicons name="search" size={20} color={Colors.textMuted} />
           <TextInput 
@@ -500,12 +660,13 @@ export default function GlobalAssignmentsScreen() {
           renderItem={renderDoctorGroup}
           keyExtractor={item => item.id}
           contentContainerStyle={styles.list}
-          refreshControl={<RefreshControl refreshing={isLoading} onRefresh={refetch} colors={[Colors.secondary]} />}
+          refreshControl={<RefreshControl refreshing={isLoading} onRefresh={() => { refetch(); refetchDoctorBlockedAppointments(); }} colors={[Colors.secondary]} />}
           initialNumToRender={5}
           maxToRenderPerBatch={5}
           windowSize={5}
           removeClippedSubviews={true}
           showsVerticalScrollIndicator={false}
+          ListFooterComponent={renderDoctorBlockedSection}
           ListEmptyComponent={
             <View style={styles.emptyState}>
               <Ionicons name="calendar-outline" size={64} color={Colors.textMuted} />
@@ -528,8 +689,8 @@ export default function GlobalAssignmentsScreen() {
 
               <ScrollView bounces={false} style={styles.formContainer} showsVerticalScrollIndicator={false}>
                 <Text style={styles.label}>Fecha *</Text>
-                <TouchableOpacity style={styles.timeInput} onPress={() => setShowBlockPicker('date')}>
-                  <Text style={styles.timeLabel}>{format(blockDate, 'dd/MM/yyyy')}</Text>
+                <TouchableOpacity style={styles.timeInput} onPress={() => setShowBlockPicker(true)}>
+                  <Text style={styles.timeLabel}>{format(blockDate, "d 'de' MMMM 'del' yyyy", { locale: es })}</Text>
                 </TouchableOpacity>
 
                 <Text style={styles.label}>Consultorio *</Text>
@@ -550,26 +711,48 @@ export default function GlobalAssignmentsScreen() {
                   <Text style={styles.emptyInlineText}>No hay consultorios asignados para bloquear.</Text>
                 )}
 
-                <View style={styles.row}>
-                  <View style={{ flex: 1 }}>
-                    <Text style={styles.label}>Hora Inicio *</Text>
-                    <TouchableOpacity style={styles.timeInput} onPress={() => setShowBlockPicker('start')}>
-                      <Text style={styles.timeLabel}>{format(blockStartTime, 'HH:mm')}</Text>
-                    </TouchableOpacity>
+                <Text style={styles.label}>Bloques disponibles *</Text>
+                {isLoadingBlocks ? (
+                  <ActivityIndicator color={Colors.secondary} style={{ marginVertical: 16 }} />
+                ) : availableBlockSlots.length > 0 ? (
+                  <View style={styles.blockGrid}>
+                    {availableBlockSlots.map(time => {
+                      const selected = selectedBlockTimes.includes(time);
+                      return (
+                        <TouchableOpacity
+                          key={time}
+                          style={[styles.blockSlot, selected && styles.blockSlotActive]}
+                          onPress={() => setSelectedBlockTimes(prev =>
+                            prev.includes(time) ? prev.filter(item => item !== time) : [...prev, time].sort()
+                          )}
+                        >
+                          <Text style={[styles.blockSlotText, selected && styles.blockSlotTextActive]}>{time}</Text>
+                        </TouchableOpacity>
+                      );
+                    })}
                   </View>
-                  <View style={{ width: 15 }} />
-                  <View style={{ flex: 1 }}>
-                    <Text style={styles.label}>Hora Fin *</Text>
-                    <TouchableOpacity style={styles.timeInput} onPress={() => setShowBlockPicker('end')}>
-                      <Text style={styles.timeLabel}>{format(blockEndTime, 'HH:mm')}</Text>
-                    </TouchableOpacity>
+                ) : (
+                  <Text style={styles.emptyInlineText}>No hay bloques disponibles para esa fecha y consultorio.</Text>
+                )}
+
+                <Text style={styles.label}>Mis horarios bloqueados</Text>
+                {blockedSlots.length > 0 ? (
+                  <View style={styles.blockedList}>
+                    {blockedSlots.map((slot: any) => (
+                      <View key={slot.id} style={styles.blockedRow}>
+                        <Ionicons name="ban-outline" size={14} color="#dc2626" />
+                        <Text style={styles.blockedText}>{slot.time} hrs · {slot.office}</Text>
+                      </View>
+                    ))}
                   </View>
-                </View>
+                ) : (
+                  <Text style={styles.emptyInlineText}>No tienes bloqueos en este día.</Text>
+                )}
 
                 <TouchableOpacity
-                  style={[styles.confirmBtn, (!blockOfficeId || createBlockMutation.isPending) && styles.disabledBtn]}
+                  style={[styles.confirmBtn, (!blockOfficeId || selectedBlockTimes.length === 0 || createBlockMutation.isPending) && styles.disabledBtn]}
                   onPress={() => createBlockMutation.mutate()}
-                  disabled={!blockOfficeId || createBlockMutation.isPending}
+                  disabled={!blockOfficeId || selectedBlockTimes.length === 0 || createBlockMutation.isPending}
                 >
                   {createBlockMutation.isPending ? <ActivityIndicator color="white" /> : <Text style={styles.confirmBtnText}>Confirmar Bloqueo</Text>}
                 </TouchableOpacity>
@@ -578,20 +761,16 @@ export default function GlobalAssignmentsScreen() {
 
               {showBlockPicker && (
                 <DateTimePicker
-                  value={showBlockPicker === 'date' ? blockDate : showBlockPicker === 'start' ? blockStartTime : blockEndTime}
-                  mode={showBlockPicker === 'date' ? 'date' : 'time'}
-                  minimumDate={showBlockPicker === 'date' ? new Date() : undefined}
+                  value={blockDate}
+                  mode="date"
+                  minimumDate={new Date()}
                   is24Hour={true}
                   display={Platform.OS === 'ios' ? 'spinner' : 'default'}
                   themeVariant="light"
                   textColor={Colors.primary}
                   onChange={(_: any, date?: Date) => {
-                    setShowBlockPicker(null);
-                    if (date) {
-                      if (showBlockPicker === 'date') setBlockDate(date);
-                      else if (showBlockPicker === 'start') setBlockStartTime(date);
-                      else setBlockEndTime(date);
-                    }
+                    setShowBlockPicker(false);
+                    if (date) setBlockDate(date);
                   }}
                 />
               )}
@@ -846,6 +1025,32 @@ const styles = StyleSheet.create({
   emptyState: { alignItems: 'center', marginTop: 100 },
   emptyText: { color: Colors.textMuted, marginTop: 10, fontWeight: '600' },
   emptyInlineText: { color: Colors.textMuted, fontSize: 13, fontWeight: '700', marginBottom: Spacing.md, marginLeft: 4 },
+  blockGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginBottom: Spacing.md },
+  blockSlot: {
+    width: 76, paddingVertical: 12, borderRadius: 12,
+    backgroundColor: '#f1f5f9', borderWidth: 1, borderColor: '#e2e8f0',
+    alignItems: 'center', justifyContent: 'center',
+  },
+  blockSlotActive: { backgroundColor: '#dc2626', borderColor: '#dc2626' },
+  blockSlotText: { fontSize: 13, fontWeight: '800', color: Colors.primary },
+  blockSlotTextActive: { color: 'white' },
+  blockedList: { gap: 8, marginBottom: Spacing.md },
+  blockedRow: {
+    flexDirection: 'row', alignItems: 'center', gap: 8,
+    backgroundColor: '#fef2f2', borderWidth: 1, borderColor: '#fecaca',
+    borderRadius: 12, padding: 10,
+  },
+  blockedText: { color: '#991b1b', fontSize: 13, fontWeight: '800' },
+  mainBlockedSection: { marginTop: 4, marginBottom: 24 },
+  mainBlockedTitle: { fontSize: 18, fontWeight: '900', color: '#1e293b', marginBottom: 12 },
+  mainBlockedList: { gap: 10 },
+  mainBlockedRow: {
+    flexDirection: 'row', alignItems: 'center', gap: 10,
+    backgroundColor: 'white', borderWidth: 1, borderColor: '#fecaca',
+    borderRadius: 16, padding: 12,
+  },
+  mainBlockedDate: { fontSize: 13, color: '#991b1b', fontWeight: '900' },
+  mainBlockedHour: { fontSize: 12, color: '#64748b', fontWeight: '700', marginTop: 2 },
   
   // Doctor Search
   doctorSearchContainer: {

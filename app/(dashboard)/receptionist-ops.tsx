@@ -13,10 +13,12 @@ import { validatePhone, formatPhone, cleanPhone, translateSupabaseError } from '
 import Toast from 'react-native-toast-message';
 import { Colors, Spacing, BorderRadius, Shadows, FontSizes } from '../../constants/theme';
 import { useUpcomingAppointments } from '../../hooks/useDashboardData';
+import { useAuth } from '../../hooks/useAuth';
 
 export default function ReceptionistOpsScreen() {
   const router = useRouter();
   const queryClient = useQueryClient();
+  const { profile } = useAuth();
   const appointmentsQuery = useUpcomingAppointments('receptionist');
 
   // Register States
@@ -187,6 +189,16 @@ export default function ReceptionistOpsScreen() {
       </View>
 
       <ScrollView contentContainerStyle={styles.scrollContent}>
+        {!profile?.branch_id && (
+          <View style={styles.branchWarning}>
+            <Ionicons name="business-outline" size={20} color="#ef4444" />
+            <View style={{ flex: 1 }}>
+              <Text style={styles.branchWarningTitle}>Sin sucursal asignada</Text>
+              <Text style={styles.branchWarningText}>Pide a administracion asignar una sucursal para ver y recibir pacientes.</Text>
+            </View>
+          </View>
+        )}
+
         <View style={styles.sectionHeader}>
           <Text style={styles.sectionTitle}>Sala de Espera ({waitingPatients.length})</Text>
           <Ionicons name="people-circle" size={24} color={Colors.secondary} />
@@ -204,7 +216,13 @@ export default function ReceptionistOpsScreen() {
                      <Text style={styles.ticketTime}>{format(new Date(apt.start_time), 'HH:mm')} hrs</Text>
                   </View>
                   <Text style={styles.ticketTitle}>{apt.counterparty?.first_name} {apt.counterparty?.last_name}</Text>
-                  
+                  <View style={styles.doctorRow}>
+                    <Ionicons name="medical-outline" size={13} color={Colors.textMuted} />
+                    <Text style={styles.doctorText} numberOfLines={1}>
+                      Con Dr. {apt.doctorProfile?.first_name || 'Doctor'} {apt.doctorProfile?.last_name || ''}
+                    </Text>
+                  </View>
+                   
                   <View style={styles.paymentInfo}>
                      <View style={styles.paymentRow}>
                         <Text style={styles.paymentLabel}>Saldo: <Text style={styles.paymentVal}>${apt.total_price - apt.amount_paid}</Text></Text>
@@ -241,8 +259,14 @@ export default function ReceptionistOpsScreen() {
                        {apt.amount_paid >= apt.total_price ? '✅ Liquidado' : `⚠️ Debe: $${apt.total_price - apt.amount_paid}`}
                     </Text>
                  </View>
-                 <Text style={styles.ticketTitle}>{apt.counterparty?.first_name} {apt.counterparty?.last_name}</Text>
-                 <TouchableOpacity style={styles.checkInBtn} onPress={() => checkInMutation.mutate(apt.id)}>
+                  <Text style={styles.ticketTitle}>{apt.counterparty?.first_name} {apt.counterparty?.last_name}</Text>
+                  <View style={styles.doctorRow}>
+                    <Ionicons name="medical-outline" size={13} color={Colors.textMuted} />
+                    <Text style={styles.doctorText} numberOfLines={1}>
+                      Con Dr. {apt.doctorProfile?.first_name || 'Doctor'} {apt.doctorProfile?.last_name || ''}
+                    </Text>
+                  </View>
+                  <TouchableOpacity style={styles.checkInBtn} onPress={() => checkInMutation.mutate(apt.id)}>
                     <Ionicons name="log-in-outline" size={14} color="white" />
                     <Text style={styles.checkInBtnText}>Confirmar Llegada</Text>
                  </TouchableOpacity>
@@ -413,6 +437,9 @@ const styles = StyleSheet.create({
   quickAddBtn: { backgroundColor: '#7c3aed', flexDirection: 'row', alignItems: 'center', gap: 8, paddingHorizontal: 16, paddingVertical: 10, borderRadius: 12 },
   quickAddBtnText: { color: 'white', fontWeight: '800', fontSize: 13 },
   scrollContent: { padding: 16, paddingBottom: 40 },
+  branchWarning: { flexDirection: 'row', alignItems: 'center', gap: 12, backgroundColor: '#fef2f2', borderWidth: 1, borderColor: '#fecaca', borderRadius: 12, padding: 12, marginBottom: 16 },
+  branchWarningTitle: { fontSize: 13, fontWeight: '900', color: '#991b1b' },
+  branchWarningText: { fontSize: 12, fontWeight: '600', color: '#b91c1c', marginTop: 2 },
   sectionHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 },
   sectionTitle: { fontSize: 18, fontWeight: '800', color: Colors.primary },
   ticketCard: { backgroundColor: 'white', borderRadius: 16, ...Shadows.small, flexDirection: 'row', marginBottom: 12, overflow: 'hidden' },
@@ -423,6 +450,8 @@ const styles = StyleSheet.create({
   ticketHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 },
   ticketTime: { fontSize: 14, fontWeight: '800', color: Colors.secondary },
   ticketTitle: { fontSize: 15, fontWeight: '800', color: Colors.primary, marginBottom: 8 },
+  doctorRow: { flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: -4, marginBottom: 10 },
+  doctorText: { flex: 1, fontSize: 12, fontWeight: '700', color: Colors.textMuted },
   checkInBtn: { flexDirection: 'row', alignItems: 'center', gap: 6, backgroundColor: Colors.secondary, paddingVertical: 8, paddingHorizontal: 12, borderRadius: 10, alignSelf: 'flex-start' },
   checkInBtnText: { color: 'white', fontSize: 12, fontWeight: '800' },
   paymentInfo: { backgroundColor: '#f8fafc', padding: 10, borderRadius: 12, marginTop: 4 },
@@ -458,4 +487,3 @@ const styles = StyleSheet.create({
   submitBtn: { backgroundColor: Colors.secondary, padding: 14, borderRadius: BorderRadius.full, alignItems: 'center', marginTop: 10, shadowColor: Colors.secondary, shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.2, shadowRadius: 8, elevation: 4 },
   submitBtnText: { color: 'white', fontWeight: '800', fontSize: 15 },
 });
-

@@ -24,9 +24,17 @@ export default function BentoBranchesScreen() {
   const { data: branches, isLoading, refetch } = useQuery({
     queryKey: ['admin-branches-bento'],
     queryFn: async () => {
-      const { data, error } = await supabase.from('branches').select('*').order('name');
+      const [{ data, error }, { data: receptionists, error: receptionistsError }] = await Promise.all([
+        supabase.from('branches').select('*').order('name'),
+        supabase.from('profiles').select('id, first_name, last_name, branch_id, is_active').eq('role', 'receptionist'),
+      ]);
       if (error) throw error;
-      return data || [];
+      if (receptionistsError) throw receptionistsError;
+
+      return (data || []).map((branch: any) => ({
+        ...branch,
+        receptionist: (receptionists || []).find((user: any) => user.is_active !== false && user.branch_id === branch.id) || null,
+      }));
     },
   });
 
@@ -117,6 +125,12 @@ export default function BentoBranchesScreen() {
           <View style={styles.infoRow}>
             <Ionicons name="call-outline" size={12} color={Colors.textMuted} />
             <Text style={styles.branchPhone}>{item.phone ? formatPhone(item.phone) : 'N/A'}</Text>
+          </View>
+          <View style={styles.infoRow}>
+            <Ionicons name="person-circle-outline" size={12} color={item.receptionist ? Colors.secondary : '#ef4444'} />
+            <Text style={[styles.branchReceptionist, !item.receptionist && styles.branchReceptionistMissing]} numberOfLines={1}>
+              {item.receptionist ? `Recepcion: ${item.receptionist.first_name} ${item.receptionist.last_name || ''}` : 'Sin recepcionista asignada'}
+            </Text>
           </View>
         </View>
 
@@ -306,6 +320,8 @@ const styles = StyleSheet.create({
   infoRow: { flexDirection: 'row', alignItems: 'flex-start', gap: 6, marginTop: 4 },
   branchAddress: { fontSize: 13, color: '#64748b', fontWeight: '500', flex: 1 },
   branchPhone: { fontSize: 12, color: '#94a3b8', fontWeight: '600' },
+  branchReceptionist: { fontSize: 12, color: Colors.secondary, fontWeight: '800', flex: 1 },
+  branchReceptionistMissing: { color: '#ef4444' },
   cardFooter: { 
     flexDirection: 'row', justifyContent: 'space-between', 
     borderTopWidth: 1, borderTopColor: '#f1f5f9', paddingTop: Spacing.md,

@@ -25,8 +25,21 @@ export default function CatalogScreen() {
         // 1. Obtener IDs de doctores con asignaciones
         const { data: assignments } = await supabase
           .from('doctor_assignments')
-          .select('doctor_id');
+          .select('doctor_id, offices(status, branches(id, name, status))');
         const assignedIds = (assignments || []).map(a => a.doctor_id);
+        const branchMap = new Map<string, string[]>();
+
+        (assignments || []).forEach((assignment: any) => {
+          const office = Array.isArray(assignment.offices) ? assignment.offices[0] : assignment.offices;
+          const branch = Array.isArray(office?.branches) ? office.branches[0] : office?.branches;
+          if (!assignment.doctor_id || !branch?.name) return;
+          if (office?.status !== 'active' || branch.status !== 'active') return;
+
+          const current = branchMap.get(assignment.doctor_id) || [];
+          if (!current.includes(branch.name)) {
+            branchMap.set(assignment.doctor_id, [...current, branch.name]);
+          }
+        });
 
         // 2. Obtener perfiles que tengan especialidad o asignación
         const { data: profilesResult, error: profilesError } = await supabase
@@ -67,6 +80,7 @@ export default function CatalogScreen() {
           ...p,
           avgRating: ratingMap[p.user_id] ? (ratingMap[p.user_id].sum / ratingMap[p.user_id].count).toFixed(1) : '5.0',
           totalReviews: ratingMap[p.user_id]?.count || 0,
+          branches: branchMap.get(p.user_id) || [],
         }));
       } catch (err: any) {
         throw err;
@@ -82,7 +96,7 @@ export default function CatalogScreen() {
 
   const normalizedSearch = search.trim().toLowerCase();
   const filtered = doctors?.filter(d =>
-    !normalizedSearch || `${d.first_name || ''} ${d.last_name || ''} ${d.specialty || ''}`.toLowerCase().includes(normalizedSearch)
+    !normalizedSearch || `${d.first_name || ''} ${d.last_name || ''} ${d.specialty || ''} ${(d.branches || []).join(' ')}`.toLowerCase().includes(normalizedSearch)
   ) || [];
 
   return (
@@ -140,6 +154,14 @@ export default function CatalogScreen() {
               <View style={styles.doctorInfo}>
                 <Text style={styles.doctorName}>Dr. {doctor.first_name} {doctor.last_name}</Text>
                 <Text style={styles.doctorSpecialty}>{doctor.specialty || 'Medicina General'}</Text>
+                {doctor.branches?.length > 0 && (
+                  <View style={styles.branchRow}>
+                    <Ionicons name="business-outline" size={13} color={Colors.textMuted} />
+                    <Text style={styles.branchText} numberOfLines={2}>
+                      {doctor.branches.join(' · ')}
+                    </Text>
+                  </View>
+                )}
                 <View style={styles.doctorMeta}>
                   {doctor.avgRating && (
                     <View style={styles.ratingBadge}>
@@ -186,6 +208,8 @@ const styles = StyleSheet.create({
   doctorInfo: { flex: 1 },
   doctorName: { fontSize: FontSizes.lg, fontWeight: '700', color: Colors.primary },
   doctorSpecialty: { fontSize: FontSizes.sm, color: Colors.textSecondary, marginTop: 2 },
+  branchRow: { flexDirection: 'row', alignItems: 'flex-start', gap: 5, marginTop: 5 },
+  branchText: { flex: 1, fontSize: FontSizes.xs, fontWeight: '700', color: Colors.textMuted, lineHeight: 16 },
   doctorMeta: { flexDirection: 'row', alignItems: 'center', gap: Spacing.md, marginTop: Spacing.xs },
   ratingBadge: { flexDirection: 'row', alignItems: 'center', gap: 4 },
   ratingText: { fontSize: FontSizes.xs, fontWeight: '600', color: Colors.textSecondary },

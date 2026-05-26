@@ -3,13 +3,33 @@ import { Ionicons } from '@expo/vector-icons';
 import { format } from 'date-fns';
 import { es } from 'date-fns/locale';
 import { useRouter } from 'expo-router';
+import { useQuery } from '@tanstack/react-query';
 import { Colors, Spacing, BorderRadius, Shadows } from '../../constants/theme';
 import { useUpcomingAppointments } from '../../hooks/useDashboardData';
 import { StatsSkeleton, AppointmentSkeleton } from './DashboardSkeletons';
+import { useAuth } from '../../hooks/useAuth';
+import { supabase } from '../../lib/supabase';
 
 export default function ReceptionistDashboard() {
   const router = useRouter();
+  const { profile } = useAuth();
   const appointmentsQuery = useUpcomingAppointments('receptionist');
+  const { data: branch } = useQuery({
+    queryKey: ['receptionist-branch', profile?.branch_id],
+    queryFn: async () => {
+      if (!profile?.branch_id) return null;
+
+      const { data, error } = await supabase
+        .from('branches')
+        .select('id, name, address, status')
+        .eq('id', profile.branch_id)
+        .single();
+
+      if (error) throw error;
+      return data;
+    },
+    enabled: !!profile?.branch_id,
+  });
 
   if (appointmentsQuery.isLoading && !appointmentsQuery.data) {
     return (
@@ -22,6 +42,21 @@ export default function ReceptionistDashboard() {
 
   return (
     <View style={styles.container}>
+      <View style={[styles.branchCard, !profile?.branch_id && styles.branchCardMissing]}>
+        <View style={styles.branchIcon}>
+          <Ionicons name="business-outline" size={20} color={profile?.branch_id ? Colors.secondary : '#ef4444'} />
+        </View>
+        <View style={styles.branchInfo}>
+          <Text style={styles.branchLabel}>Sucursal asignada</Text>
+          <Text style={[styles.branchName, !profile?.branch_id && styles.branchNameMissing]} numberOfLines={1}>
+            {branch?.name || (profile?.branch_id ? 'Cargando sucursal...' : 'Sin sucursal asignada')}
+          </Text>
+          {!!branch?.address && (
+            <Text style={styles.branchAddress} numberOfLines={1}>{branch.address}</Text>
+          )}
+        </View>
+      </View>
+
       <View style={styles.statsRow}>
         <TouchableOpacity style={styles.statCard} onPress={() => router.push('/(dashboard)/receptionist-ops')}>
           <Ionicons name="grid-outline" size={24} color={Colors.secondary} />
@@ -85,6 +120,14 @@ export default function ReceptionistDashboard() {
 
 const styles = StyleSheet.create({
   container: { flex: 1 },
+  branchCard: { flexDirection: 'row', alignItems: 'center', gap: 12, backgroundColor: 'white', padding: 14, borderRadius: BorderRadius.xl, ...Shadows.small, marginBottom: 16, borderWidth: 1, borderColor: '#e2e8f0' },
+  branchCardMissing: { backgroundColor: '#fef2f2', borderColor: '#fecaca' },
+  branchIcon: { width: 40, height: 40, borderRadius: 20, backgroundColor: '#f8fafc', alignItems: 'center', justifyContent: 'center' },
+  branchInfo: { flex: 1 },
+  branchLabel: { fontSize: 10, fontWeight: '900', color: Colors.textMuted, textTransform: 'uppercase' },
+  branchName: { fontSize: 16, fontWeight: '900', color: Colors.primary, marginTop: 2 },
+  branchNameMissing: { color: '#991b1b' },
+  branchAddress: { fontSize: 12, fontWeight: '600', color: Colors.textMuted, marginTop: 2 },
   statsRow: { flexDirection: 'row', gap: 12, marginBottom: 24 },
   statCard: { flex: 1, backgroundColor: 'white', padding: 12, borderRadius: BorderRadius.xl, ...Shadows.small, alignItems: 'center' },
   statVal: { fontSize: 13, fontWeight: '900', color: Colors.primary, marginTop: 8 },
