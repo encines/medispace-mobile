@@ -4,9 +4,22 @@
 
 Proyecto móvil de Medispace — aplicación para gestión de citas y registros médicos.
 
+## Qué es la app
+
+Medispace Mobile es una aplicación móvil para clínicas y centros de salud diseñada para facilitar la gestión diaria: permite a recepcionistas, personal administrativo, médicos y pacientes interactuar con el sistema de citas, historiales médicos y comunicaciones internas.
+
+## Qué hace
+
+- Gestiona agendamiento de citas: crear, editar y cancelar citas con notificaciones.
+- Permite ver y actualizar el historial de pacientes y registros clínicos básicos.
+- Facilita la comunicación entre pacientes y personal (notificaciones y mensajes básicos).
+- Ofrece paneles de control para distintos roles (administración, médicos, recepcionistas, pacientes) con vistas adaptadas.
+- Soporta subida de documentos e imágenes asociadas a pacientes y registros.
+- Integra autenticación segura y manejo de sesiones a través de `supabase`.
+
 ## Capturas
 
-Presentamos una galería con capturas reales de la aplicación. (Se muestran los archivos `screenshot-*.png` en `assets/screenshots/`)
+Presentamos una galería con capturas reales de la aplicación.
 
 <p align="center">
 	<img src="assets/screenshots/screenshot-1.png" alt="Screenshot 1" width="320" />
@@ -37,17 +50,6 @@ npx expo start
 ```
 
 - Abrir en Android/iOS o en simulador
-
-## Cómo añadir capturas reales
-
-1. Reemplace los archivos en `assets/screenshots/` con imágenes reales (PNG/JPG/SVG).
-2. Use nombres `screenshot-1.png`, `screenshot-2.png`, etc.
-3. Para previsualizar en el README local, abra el archivo en VS Code o en GitHub después de commitear.
-
-## Recursos de diseño
-
-- Íconos y splash: reemplace `assets/icon.png`, `assets/splash-icon.png`, y `assets/adaptive-icon.png`.
-- Para generar iconos adaptativos use herramientas como https://appicon.co/ o la CLI de `expo`.
 
 ## Desarrollo (scripts útiles)
 
