@@ -1,6 +1,7 @@
 {
   "expo": {
     "name": "medispace-mobile",
+    "description": "Aplicación móvil Medispace - gestión de citas y registros médicos",
     "slug": "medispace-mobile",
     "version": "1.0.0",
     "scheme": "medispace",

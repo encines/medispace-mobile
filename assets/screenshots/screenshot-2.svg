@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1080" height="1920">
+  <rect width="100%" height="100%" fill="#111827" />
+  <circle cx="540" cy="600" r="120" fill="#06b6d4" />
+  <text x="50%" y="45%" fill="#fff" font-size="36" font-family="Arial" text-anchor="middle">Pantalla de Citas</text>
+  <text x="50%" y="55%" fill="#9ca3af" font-size="20" font-family="Arial" text-anchor="middle">Reemplaza con una captura real desde tu dispositivo</text>
+</svg>
